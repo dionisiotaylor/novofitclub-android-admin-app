@@ -11,9 +11,9 @@ usuario de WordPress + Application Password.
 - [x] Bloqueo con huella / PIN al abrir o volver a la app
 - [x] Pestañas Ventas · Miembros · Caja · Ajustes
 - [x] Ajustes (sitio, usuario, bloqueo, cerrar sesión)
-- [ ] Ventas (dashboard, lista, detalle, crear/editar)
-- [ ] Miembros (lista, detalle, crear/editar, ventas del miembro)
-- [ ] Caja (caja chica, sobres, cierres)
+- [x] Ventas (dashboard, lista con filtros, detalle, crear/editar/eliminar)
+- [x] Miembros (lista con filtros, detalle, crear/editar, ventas del miembro)
+- [x] Caja (caja chica, sobres, cierres)
 - [x] Notificaciones push de ventas nuevas (FCM) — requiere configurar Firebase, ver abajo
 
 ## Compilar

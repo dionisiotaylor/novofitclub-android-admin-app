@@ -46,6 +46,10 @@ class MainActivity : FragmentActivity() {
                 val lockError by app.appLock.lastError.collectAsState()
 
                 if (!auth.isAuthenticated) {
+                    // The tabs keep their ViewModels at activity scope (so lists survive
+                    // tab switches); drop them on sign-out so the next account never
+                    // sees the previous one's data.
+                    LaunchedEffect(Unit) { viewModelStore.clear() }
                     LoginScreen(app.auth)
                 } else {
                     // Same moment as the iOS RootView .task: right after sign-in / on launch.
