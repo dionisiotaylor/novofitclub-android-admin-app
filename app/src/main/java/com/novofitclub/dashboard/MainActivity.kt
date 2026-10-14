@@ -1,8 +1,10 @@
 package com.novofitclub.dashboard
 
+import android.Manifest
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -11,6 +13,8 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.novofitclub.dashboard.core.ui.NovoTheme
 import com.novofitclub.dashboard.feature.lock.LockScreen
 import com.novofitclub.dashboard.feature.login.LoginScreen
@@ -20,6 +24,11 @@ import com.novofitclub.dashboard.feature.root.RootScreen
 class MainActivity : FragmentActivity() {
 
     private val app get() = application as NovoFitClubApp
+
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) registerPush()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,6 +48,8 @@ class MainActivity : FragmentActivity() {
                 if (!auth.isAuthenticated) {
                     LoginScreen(app.auth)
                 } else {
+                    // Same moment as the iOS RootView .task: right after sign-in / on launch.
+                    LaunchedEffect(auth.username) { setUpPush() }
                     Box {
                         RootScreen(app)
                         if (!unlocked) {
@@ -48,6 +59,19 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    private fun setUpPush() {
+        if (!app.push.isConfigured) return
+        if (app.push.needsPermission) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            registerPush()
+        }
+    }
+
+    private fun registerPush() {
+        lifecycleScope.launch { app.push.registerToken(app.api) }
     }
 
     override fun onResume() {

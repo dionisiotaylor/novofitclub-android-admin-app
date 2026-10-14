@@ -68,7 +68,10 @@ fun RootScreen(app: NovoFitClubApp) {
                 Tab.Sales -> SalesTab(app)
                 Tab.Members -> MembersTab(app)
                 Tab.Cash -> CashTab(app)
-                Tab.Settings -> SettingsScreen(app.auth, app.appLock)
+                Tab.Settings -> SettingsScreen(app.auth, app.appLock) {
+                    app.push.reset()
+                    app.auth.logout()
+                }
             }
         }
     }

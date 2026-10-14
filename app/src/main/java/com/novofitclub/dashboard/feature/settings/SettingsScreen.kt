@@ -30,7 +30,7 @@ import com.novofitclub.dashboard.core.ui.SectionHeader
 import com.novofitclub.dashboard.core.ui.cardBackground
 
 @Composable
-fun SettingsScreen(auth: AuthManager, appLock: AppLockManager) {
+fun SettingsScreen(auth: AuthManager, appLock: AppLockManager, onLogout: () -> Unit) {
     val state by auth.state.collectAsState()
     val lockEnabled by appLock.isEnabled.collectAsState()
 
@@ -61,7 +61,7 @@ fun SettingsScreen(auth: AuthManager, appLock: AppLockManager) {
                 )
             }
 
-            SecondaryButton("Cerrar sesión", onClick = auth::logout)
+            SecondaryButton("Cerrar sesión", onClick = onLogout)
         }
     }
 }
