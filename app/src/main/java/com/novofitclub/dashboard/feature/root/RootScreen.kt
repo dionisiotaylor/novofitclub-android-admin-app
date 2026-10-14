@@ -2,7 +2,6 @@ package com.novofitclub.dashboard.feature.root
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -23,11 +22,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 import com.novofitclub.dashboard.NovoFitClubApp
 import com.novofitclub.dashboard.core.ui.NovoColors
-import com.novofitclub.dashboard.core.ui.NovoFonts
-import com.novofitclub.dashboard.core.ui.SectionHeader
+import com.novofitclub.dashboard.feature.cash.CashTab
+import com.novofitclub.dashboard.feature.members.MembersTab
+import com.novofitclub.dashboard.feature.sales.SalesTab
 import com.novofitclub.dashboard.feature.settings.SettingsScreen
 
 private enum class Tab(val label: String, val icon: ImageVector) {
@@ -66,24 +65,11 @@ fun RootScreen(app: NovoFitClubApp) {
     ) { padding ->
         Box(Modifier.fillMaxSize().background(NovoColors.background).padding(padding)) {
             when (selected) {
-                Tab.Sales -> ComingSoon("Ventas")
-                Tab.Members -> ComingSoon("Miembros")
-                Tab.Cash -> ComingSoon("Caja")
+                Tab.Sales -> SalesTab(app)
+                Tab.Members -> MembersTab(app)
+                Tab.Cash -> CashTab(app)
                 Tab.Settings -> SettingsScreen(app.auth, app.appLock)
             }
         }
-    }
-}
-
-// Placeholder until each tab is ported from the iOS app.
-@Composable
-private fun ComingSoon(title: String) {
-    Column {
-        SectionHeader(title = title)
-        Text(
-            "Pantalla en construcción.",
-            style = NovoFonts.body(14).copy(color = NovoColors.textSecondary),
-            modifier = Modifier.padding(horizontal = 20.dp),
-        )
     }
 }

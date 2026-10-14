@@ -17,8 +17,24 @@ android {
         versionName = "1.0"
     }
 
+    // One fixed key for every APK we hand out, so a new build installs over
+    // the previous one instead of failing with a signature conflict. This is
+    // a sideload key only — create a separate, private key for Play Store.
+    signingConfigs {
+        create("sideload") {
+            storeFile = rootProject.file("signing/novo-sideload.jks")
+            storePassword = "novofitclub"
+            keyAlias = "novo"
+            keyPassword = "novofitclub"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("sideload")
+        }
         release {
+            signingConfig = signingConfigs.getByName("sideload")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -58,4 +74,6 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("io.coil-kt.coil3:coil-compose:3.0.4")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
 }

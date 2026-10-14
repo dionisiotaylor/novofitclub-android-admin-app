@@ -12,3 +12,6 @@ build/
 *.jks
 *.keystore
 google-services.json
+
+# Shared sideload signing key (see app/build.gradle.kts)
+!signing/novo-sideload.jks
