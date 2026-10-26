@@ -23,7 +23,7 @@ import org.json.JSONObject
 /**
  * The subset of the Members tab's `Member` the sale member picker needs,
  * parsed from `sale-creator/v1/members`: `id` (member post id), `member_id`
- * (cédula) and `name` ("Real Name – member_id").
+ * (cédula), `name` ("Real Name – member_id") and `photo_url`.
  */
 data class PickerMember(
     val id: String,
@@ -31,6 +31,7 @@ data class PickerMember(
     val name: String,
     val initials: String,
     val avatarColor: Color,
+    val photoUrl: String?,
 ) {
     companion object {
         fun from(fields: JSONObject, fallbackIndex: Int): PickerMember {
@@ -44,6 +45,7 @@ data class PickerMember(
                 name = name,
                 initials = initials(name),
                 avatarColor = NovoColors.avatarPalette[fallbackIndex % NovoColors.avatarPalette.size],
+                photoUrl = fields.firstString("photo_url"),
             )
         }
     }

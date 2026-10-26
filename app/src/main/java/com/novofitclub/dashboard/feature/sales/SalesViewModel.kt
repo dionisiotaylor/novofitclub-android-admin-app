@@ -16,6 +16,9 @@ import com.novofitclub.dashboard.core.net.objects
 import com.novofitclub.dashboard.core.net.str
 import com.novofitclub.dashboard.core.ui.splitEmbeddedId
 import com.novofitclub.dashboard.core.util.Formatters
+import com.novofitclub.dashboard.feature.members.Member
+import com.novofitclub.dashboard.feature.members.MemberDetailState
+import com.novofitclub.dashboard.feature.members.MemberEditState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -52,6 +55,9 @@ sealed interface SalesRoute {
     data object List : SalesRoute
     data object Dashboard : SalesRoute
     data class Detail(val saleId: String) : SalesRoute
+    /** A member opened from a sale's Miembros section. */
+    class MemberDetail(val state: MemberDetailState) : SalesRoute
+    class MemberEdit(val state: MemberEditState, val detail: MemberDetailState) : SalesRoute
 }
 
 /**
@@ -117,6 +123,19 @@ class SalesViewModel(private val api: WPApiClient) : ViewModel() {
 
     fun pop() {
         if (backStack.size > 1) backStack = backStack.dropLast(1)
+    }
+
+    /** Pops [route] only if it's still on top (a save may finish after the user already left). */
+    fun popIfTop(route: SalesRoute) {
+        if (backStack.last() === route) pop()
+    }
+
+    fun openMember(member: Member) {
+        push(SalesRoute.MemberDetail(MemberDetailState(member, api, viewModelScope)))
+    }
+
+    fun openMemberEdit(detail: MemberDetailState) {
+        push(SalesRoute.MemberEdit(MemberEditState(detail.member.id, api, viewModelScope), detail))
     }
 
     // endregion

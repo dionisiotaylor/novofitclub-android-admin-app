@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.novofitclub.dashboard.core.ui.MemberAvatar
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.SaleThumbnail
@@ -140,12 +141,7 @@ private fun Hero(state: MemberDetailState) {
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.fillMaxWidth().cardBackground().padding(20.dp),
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(56.dp).clip(CircleShape).background(state.member.avatarColor),
-        ) {
-            Text(initials(state.displayName), style = NovoFonts.semibold(19))
-        }
+        MemberAvatar(initials(state.displayName), state.member.avatarColor, state.member.photoUrl, 56.dp)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
             Text(state.displayName, style = NovoFonts.semibold(18), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("Cédula ${state.member.memberId}", style = NovoFonts.body(13).copy(color = NovoColors.textSecondary))

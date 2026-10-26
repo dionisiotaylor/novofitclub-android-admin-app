@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.novofitclub.dashboard.NovoFitClubApp
 import com.novofitclub.dashboard.core.ui.NovoColors
+import com.novofitclub.dashboard.feature.members.MemberDetailScreen
+import com.novofitclub.dashboard.feature.members.MemberEditScreen
 import com.novofitclub.dashboard.feature.sales.dashboard.SalesDashboardScreen
 import com.novofitclub.dashboard.feature.sales.edit.SaleEditScreen
 
@@ -53,6 +55,7 @@ fun SalesTab(app: NovoFitClubApp) {
                         app = app,
                         saleId = route.saleId,
                         onBack = vm::pop,
+                        onOpenMember = vm::openMember,
                         onEdited = { vm.refreshRow(route.saleId) },
                         onDeleted = {
                             vm.removeRow(route.saleId)
@@ -61,6 +64,20 @@ fun SalesTab(app: NovoFitClubApp) {
                     )
                 }
             }
+            is SalesRoute.MemberDetail -> MemberDetailScreen(
+                state = route.state,
+                onBack = vm::pop,
+                onEdit = { vm.openMemberEdit(route.state) },
+                onOpenSale = { vm.push(SalesRoute.Detail(it)) },
+            )
+            is SalesRoute.MemberEdit -> MemberEditScreen(
+                state = route.state,
+                onCancel = vm::pop,
+                onSaved = { profile ->
+                    route.detail.applySaved(profile)
+                    vm.popIfTop(route)
+                },
+            )
         }
 
         if (showingNewSale) {

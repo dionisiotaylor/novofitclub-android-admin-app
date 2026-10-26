@@ -20,11 +20,15 @@ import org.json.JSONObject
 import java.util.Locale
 
 data class SaleMemberRef(
+    /** The member's post id — what `wp/v2/member/{id}` takes. */
     val id: String,
     val name: String,
     val memberIdLabel: String?,
     val initials: String,
     val avatarColor: Color,
+    val photoUrl: String?,
+    /** Index into the avatar palette, so the member screen it opens keeps the same color. */
+    val paletteIndex: Int,
 )
 
 data class SaleLineItem(
@@ -51,7 +55,7 @@ data class SalePayment(
  * Parsed from `sale-creator/v1/sales/{id}`: `id`, `status`, `payment`/
  * `single_payment`/`card_number`/`multiple_payment`, `membership` (`null`
  * for a pure physical-product sale), `physical_products`/`services`,
- * `members` (`[{id, name}]`, `name` embedding the member_id), `notes`,
+ * `members` (`[{id, name, photo_url}]`, `name` embedding the member_id), `notes`,
  * `author` (`{id, name}`), `post_date`.
  */
 class SaleDetail(val id: String, fields: JSONObject) {
@@ -117,6 +121,8 @@ class SaleDetail(val id: String, fields: JSONObject) {
                 memberIdLabel = memberId?.let { "Cédula $it" },
                 initials = initials(displayName),
                 avatarColor = NovoColors.avatarPalette[index % NovoColors.avatarPalette.size],
+                photoUrl = obj.firstString("photo_url"),
+                paletteIndex = index,
             )
         }
 

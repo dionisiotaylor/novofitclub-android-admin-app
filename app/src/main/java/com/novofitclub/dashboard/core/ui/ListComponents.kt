@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -112,6 +113,35 @@ fun InitialsAvatar(name: String, index: Int, size: Dp = 44.dp) {
             .background(NovoColors.avatarPalette[Math.floorMod(index, NovoColors.avatarPalette.size)]),
     ) {
         Text(initials(name), style = NovoFonts.semibold((size.value * 0.36f).toInt()))
+    }
+}
+
+/**
+ * A member's round avatar: their turnstile access photo ([photoUrl]) when
+ * there is one, otherwise the colored initials circle — which also shows
+ * while the photo loads or if it fails, so it never shows blank.
+ */
+@Composable
+fun MemberAvatar(initials: String, color: Color, photoUrl: String?, size: Dp) {
+    val placeholder = @Composable {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(size).clip(CircleShape).background(color),
+        ) {
+            Text(initials, style = NovoFonts.semibold((size.value * 0.34f).toInt()))
+        }
+    }
+    if (photoUrl.isNullOrEmpty()) {
+        placeholder()
+    } else {
+        SubcomposeAsyncImage(
+            model = photoUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            loading = { placeholder() },
+            error = { placeholder() },
+            modifier = Modifier.size(size).clip(CircleShape),
+        )
     }
 }
 

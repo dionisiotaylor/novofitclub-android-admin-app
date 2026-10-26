@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.novofitclub.dashboard.core.net.WPApiClient
 import com.novofitclub.dashboard.core.net.firstString
+import com.novofitclub.dashboard.core.ui.MemberAvatar
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.SaleThumbnail
@@ -176,12 +177,7 @@ internal fun MemberPickerScreen(
                             order.add(postId)
                         }
                     }) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.size(36.dp).clip(CircleShape).background(member.avatarColor),
-                        ) {
-                            Text(member.initials, style = NovoFonts.semibold(12))
-                        }
+                        MemberAvatar(member.initials, member.avatarColor, member.photoUrl, 36.dp)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(member.name, style = NovoFonts.medium(15))
                             Text("Cédula ${member.memberId}", style = NovoFonts.body(12).copy(color = NovoColors.textSecondary))

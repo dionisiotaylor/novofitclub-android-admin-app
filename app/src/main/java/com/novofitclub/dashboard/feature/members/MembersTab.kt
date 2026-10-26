@@ -82,6 +82,7 @@ fun MembersTab(app: NovoFitClubApp) {
                 saleId = route.saleId,
                 onBack = vm::pop,
                 onChanged = { route.detail.loadSales() },
+                onOpenMember = vm::openMember,
             )
             is MembersRoute.Create -> MemberCreateScreen(
                 state = route.state,

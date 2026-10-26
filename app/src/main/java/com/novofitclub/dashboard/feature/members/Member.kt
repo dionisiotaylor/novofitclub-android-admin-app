@@ -58,6 +58,8 @@ data class Member(
     val statusLabel: String,
     val initials: String,
     val avatarColor: Color,
+    /** Thumbnail of the turnstile access photo, when there is one. */
+    val photoUrl: String? = null,
 ) {
     companion object {
         private const val EXPIRING_WINDOW_DAYS = 7
@@ -80,7 +82,28 @@ data class Member(
                 statusLabel = label,
                 initials = initials(name),
                 avatarColor = NovoColors.avatarPalette[fallbackIndex % NovoColors.avatarPalette.size],
+                photoUrl = fields.firstString("photo_url"),
             )
+        }
+
+        /**
+         * For opening a member from a screen that only has its post id (a
+         * sale's member row), via `wp/v2/member/{id}`. That endpoint carries
+         * the same values as `sale-creator/v1/members`, just nested under
+         * `acf` (with the cédula as `acf.id`), so they're re-keyed into that shape.
+         * It has no access photo, so the caller passes the one it already has.
+         */
+        fun fromWpMember(postId: String, wpFields: JSONObject, fallbackIndex: Int, photoUrl: String?): Member {
+            val acf = wpFields.optJSONObject("acf") ?: JSONObject()
+            val fields = JSONObject()
+                .put("id", postId)
+                .put("name", acf.opt("name"))
+                .put("member_id", acf.opt("id"))
+                .put("phone", acf.opt("phone"))
+                .put("email", acf.opt("email"))
+                .put("membership_expiration_date", acf.opt("membership_expiration_date"))
+                .put("photo_url", photoUrl)
+            return from(fields, fallbackIndex)
         }
 
         /** Strips the trailing " – <member_id>"; placeholder when no real name is on file. */

@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.novofitclub.dashboard.core.ui.MemberAvatar
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.cardBackground
@@ -46,12 +47,7 @@ fun MemberRow(member: Member, modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxWidth().cardBackground().padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(44.dp).clip(CircleShape).background(member.avatarColor),
-            ) {
-                Text(member.initials, style = NovoFonts.semibold(15))
-            }
+            MemberAvatar(member.initials, member.avatarColor, member.photoUrl, 44.dp)
             Box(
                 Modifier
                     .size(12.dp)

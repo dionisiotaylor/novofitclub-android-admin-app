@@ -3,6 +3,7 @@ package com.novofitclub.dashboard.feature.sales
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +21,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,11 +55,13 @@ import coil3.compose.SubcomposeAsyncImage
 import com.novofitclub.dashboard.NovoFitClubApp
 import com.novofitclub.dashboard.R
 import com.novofitclub.dashboard.core.net.WPApiClient
+import com.novofitclub.dashboard.core.ui.MemberAvatar
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.SaleThumbnail
 import com.novofitclub.dashboard.core.ui.cardBackground
 import com.novofitclub.dashboard.core.util.Formatters
+import com.novofitclub.dashboard.feature.members.Member
 import com.novofitclub.dashboard.feature.sales.edit.SaleEditScreen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -63,16 +70,24 @@ import kotlinx.coroutines.launch
  * Self-contained sale detail screen (including its edit/delete flows), also
  * pushed by the Members tab from a member's sales list. [onChanged] runs after
  * a successful edit or delete; after a delete the screen also calls [onBack]
- * itself, like iOS dismissing the detail view.
+ * itself, like iOS dismissing the detail view. [onOpenMember] runs once a
+ * tapped member row has been fetched, for the caller to push its detail.
  */
 @Composable
-fun SaleDetailScreen(app: NovoFitClubApp, saleId: String, onBack: () -> Unit, onChanged: () -> Unit) {
+fun SaleDetailScreen(
+    app: NovoFitClubApp,
+    saleId: String,
+    onBack: () -> Unit,
+    onChanged: () -> Unit,
+    onOpenMember: (Member) -> Unit,
+) {
     key(saleId) {
         ScopedViewModels {
             SaleDetailContent(
                 app = app,
                 saleId = saleId,
                 onBack = onBack,
+                onOpenMember = onOpenMember,
                 onEdited = onChanged,
                 onDeleted = {
                     onChanged()
@@ -120,6 +135,38 @@ class SaleDetailViewModel(private val api: WPApiClient, private val saleId: Stri
         errorMessage = null
         load()
     }
+
+    /** Post id of the member row currently being fetched (spinner on that row). */
+    var openingMemberId by mutableStateOf<String?>(null)
+        private set
+    var memberOpenError by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * The sale only carries each member's post id and name, while the member
+     * detail also needs contact info and expiration status — so this fetches
+     * `wp/v2/member/{id}` before handing the member to [onLoaded].
+     */
+    fun openMember(ref: SaleMemberRef, onLoaded: (Member) -> Unit) {
+        if (openingMemberId != null) return
+        openingMemberId = ref.id
+        viewModelScope.launch {
+            try {
+                val fields = api.getObject("wp/v2/member/${ref.id}")
+                onLoaded(Member.fromWpMember(ref.id, fields, ref.paletteIndex, ref.photoUrl))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                memberOpenError = e.message ?: "Error desconocido."
+            } finally {
+                openingMemberId = null
+            }
+        }
+    }
+
+    fun dismissMemberOpenError() {
+        memberOpenError = null
+    }
 }
 
 @Composable
@@ -127,6 +174,7 @@ internal fun SaleDetailContent(
     app: NovoFitClubApp,
     saleId: String,
     onBack: () -> Unit,
+    onOpenMember: (Member) -> Unit,
     onEdited: () -> Unit,
     onDeleted: () -> Unit,
 ) {
@@ -146,7 +194,27 @@ internal fun SaleDetailContent(
                 }
                 UnavailableState(error, onRetry = vm::retry)
             }
-            detail != null -> DetailBody(detail, onBack = onBack, onEdit = { showingEdit = true })
+            detail != null -> DetailBody(
+                detail,
+                openingMemberId = vm.openingMemberId,
+                onBack = onBack,
+                onEdit = { showingEdit = true },
+                onMemberClick = { vm.openMember(it, onOpenMember) },
+            )
+        }
+
+        vm.memberOpenError?.let { message ->
+            AlertDialog(
+                onDismissRequest = vm::dismissMemberOpenError,
+                containerColor = NovoColors.card,
+                title = { Text("No se pudo abrir el miembro", style = NovoFonts.semibold(17)) },
+                text = { Text(message, style = NovoFonts.body(14).copy(color = NovoColors.textSecondary)) },
+                confirmButton = {
+                    TextButton(onClick = vm::dismissMemberOpenError) {
+                        Text("OK", style = NovoFonts.semibold(15).copy(color = NovoColors.accent))
+                    }
+                },
+            )
         }
 
         if (showingEdit) {
@@ -174,7 +242,13 @@ internal fun SaleDetailContent(
  * the content scrolls (a light take on iOS's stretchy parallax header).
  */
 @Composable
-private fun DetailBody(detail: SaleDetail, onBack: () -> Unit, onEdit: () -> Unit) {
+private fun DetailBody(
+    detail: SaleDetail,
+    openingMemberId: String?,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onMemberClick: (SaleMemberRef) -> Unit,
+) {
     val headerHeight = (LocalConfiguration.current.screenHeightDp * 0.42f).dp
     val scroll = rememberScrollState()
 
@@ -197,6 +271,8 @@ private fun DetailBody(detail: SaleDetail, onBack: () -> Unit, onEdit: () -> Uni
             }
             InfoCard(
                 detail,
+                openingMemberId,
+                onMemberClick,
                 Modifier
                     .offset(y = (-24).dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
@@ -282,7 +358,12 @@ private fun fullResolutionUrl(url: String): String {
 }
 
 @Composable
-private fun InfoCard(detail: SaleDetail, modifier: Modifier) {
+private fun InfoCard(
+    detail: SaleDetail,
+    openingMemberId: String?,
+    onMemberClick: (SaleMemberRef) -> Unit,
+    modifier: Modifier,
+) {
     Column(
         verticalArrangement = Arrangement.spacedBy(20.dp),
         modifier = modifier
@@ -296,7 +377,12 @@ private fun InfoCard(detail: SaleDetail, modifier: Modifier) {
             DetailSection("Miembros") {
                 Column(Modifier.fillMaxWidth().cardBackground()) {
                     detail.members.forEachIndexed { index, member ->
-                        MemberRow(member)
+                        MemberRow(
+                            member,
+                            isOpening = openingMemberId == member.id,
+                            enabled = openingMemberId == null,
+                            onClick = { onMemberClick(member) },
+                        )
                         if (index < detail.members.size - 1) RowDivider(Modifier.padding(start = 68.dp))
                     }
                 }
@@ -357,23 +443,31 @@ private fun DetailSection(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun MemberRow(member: SaleMemberRef) {
+private fun MemberRow(member: SaleMemberRef, isOpening: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(40.dp).clip(CircleShape).background(member.avatarColor),
-        ) {
-            Text(member.initials, style = NovoFonts.semibold(14))
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        MemberAvatar(member.initials, member.avatarColor, member.photoUrl, 40.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
             Text(member.name, style = NovoFonts.semibold(15))
             member.memberIdLabel?.let {
                 Text(it, style = NovoFonts.body(12).copy(color = NovoColors.textSecondary))
             }
+        }
+        if (isOpening) {
+            CircularProgressIndicator(color = NovoColors.accent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+        } else {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Ver miembro",
+                tint = NovoColors.textSecondary,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
