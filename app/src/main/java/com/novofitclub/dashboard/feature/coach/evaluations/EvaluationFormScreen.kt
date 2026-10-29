@@ -32,6 +32,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.DocumentScanner
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.UploadFile
@@ -681,6 +683,7 @@ private fun Tile(label: String, on: Boolean, modifier: Modifier, onClick: () -> 
 @Composable
 private fun MeasuresStep(vm: EvaluationFormViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        InBodyCard(vm)
         vm.previous?.date?.let {
             Text(
                 "Composición corporal de hoy. Debajo de cada valor ves el cambio desde la medición del ${EvalDates.slashed(it)}.",
@@ -691,6 +694,35 @@ private fun MeasuresStep(vm: EvaluationFormViewModel) {
         FieldLabel("Composición corporal")
         MeasureGrid(vm, listOf(Measure.Muscle, Measure.FatPct, Measure.FatKg, Measure.Visceral))
         BmiCard(vm.bmi)
+    }
+}
+
+/** "Escanear InBody": a screenshot of the results or a photo, read on the phone. */
+@Composable
+private fun InBodyCard(vm: EvaluationFormViewModel) {
+    val capture = rememberPhotoCapture { photos -> photos.firstOrNull()?.let { vm.scanInBody(it.preview) } }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth().cardBackground().padding(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Outlined.DocumentScanner, contentDescription = null, tint = EvalColors.pink, modifier = Modifier.size(24.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Escanear InBody", style = NovoFonts.semibold(15))
+                Text(
+                    "Elegí la captura de los resultados o tomale una foto: los números se llenan solos.",
+                    style = NovoFonts.body(12).copy(color = gray),
+                )
+            }
+            if (vm.isScanningInBody) CircularProgressIndicator(color = NovoColors.accent, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DashedButton("Elegir captura", { Icon(Icons.Outlined.Image, null, Modifier.size(18.dp)) }, Modifier.weight(1f)) {
+                if (!vm.isScanningInBody) capture.pickFromGallery()
+            }
+            DashedButton("Tomar foto", { Icon(Icons.Outlined.PhotoCamera, null, Modifier.size(18.dp)) }, Modifier.weight(1f)) {
+                if (!vm.isScanningInBody) capture.takePhoto()
+            }
+        }
+        vm.inBodySummary?.let { Text(it, style = NovoFonts.body(13).copy(color = NovoColors.statusActive)) }
+        vm.inBodyError?.let { Text(it, style = NovoFonts.body(13).copy(color = EvalColors.overdue)) }
     }
 }
 

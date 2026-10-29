@@ -1,6 +1,7 @@
 package com.novofitclub.dashboard.feature.coach.evaluations
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
@@ -84,6 +85,13 @@ class EvaluationFormViewModel(
     var isSaving by mutableStateOf(false)
         private set
     var errorMessage by mutableStateOf<String?>(null)
+    var isScanningInBody by mutableStateOf(false)
+        private set
+    /** What the last InBody scan filled in, for the coach to check. */
+    var inBodySummary by mutableStateOf<String?>(null)
+        private set
+    var inBodyError by mutableStateOf<String?>(null)
+        private set
 
     init {
         existing?.let { e ->
@@ -174,6 +182,37 @@ class EvaluationFormViewModel(
             if (goalText.isEmpty() && prev.goal.isNotEmpty()) setGoal(prev.goal)
             if (pain.isEmpty()) pain.addAll(prev.pain)
             prefilledFrom = prev.date
+        }
+    }
+
+    /** Reads an InBody screenshot or photo on the phone and fills the measurements it finds. The image isn't kept. */
+    fun scanInBody(bitmap: Bitmap) {
+        viewModelScope.launch {
+            isScanningInBody = true
+            inBodySummary = null
+            inBodyError = null
+            val values = runCatching { InBodyReader.read(bitmap) }.getOrElse { emptyMap() }
+            isScanningInBody = false
+            val found = InBodyReader.Field.entries.filter { values[it] != null }
+            if (found.isEmpty()) {
+                inBodyError = "No encontramos los números del InBody en la imagen. Probá con una captura de la pantalla de resultados."
+                return@launch
+            }
+            found.forEach { field ->
+                val measure = when (field) {
+                    InBodyReader.Field.Weight -> Measure.Weight
+                    InBodyReader.Field.Muscle -> Measure.Muscle
+                    InBodyReader.Field.FatKg -> Measure.FatKg
+                    InBodyReader.Field.FatPct -> Measure.FatPct
+                    InBodyReader.Field.Visceral -> Measure.Visceral
+                    InBodyReader.Field.Height -> Measure.Height
+                }
+                measures[measure] = evalNumber(values.getValue(field), 2)
+            }
+            val missing = InBodyReader.Field.entries.filter { values[it] == null && it != InBodyReader.Field.Height }
+            inBodySummary = "Leímos del InBody: " + found.joinToString(" · ") { "${it.label} ${evalNumber(values.getValue(it))}" } +
+                (if (missing.isEmpty()) "." else ". No encontramos: " + missing.joinToString(", ") { it.label } + ".") +
+                " Revisá que estén bien antes de guardar."
         }
     }
 
