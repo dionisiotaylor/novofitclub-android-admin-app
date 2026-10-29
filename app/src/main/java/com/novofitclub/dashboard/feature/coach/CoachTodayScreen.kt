@@ -169,7 +169,7 @@ fun ProgramOpenerDialogs(opener: ProgramOpener) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CoachTodayScreen(app: NovoFitClubApp, viewing: ViewedCoach?, showPrograms: () -> Unit) {
+fun CoachTodayScreen(app: NovoFitClubApp, viewing: ViewedCoach?, showEvaluations: () -> Unit, showPrograms: () -> Unit) {
     val vm: CoachTodayViewModel = viewModel(key = "coach-today-${viewing?.id}") { CoachTodayViewModel(app.api, viewing?.id) }
     val auth by app.auth.state.collectAsState()
     val context = LocalContext.current
@@ -203,7 +203,7 @@ fun CoachTodayScreen(app: NovoFitClubApp, viewing: ViewedCoach?, showPrograms: (
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatTile(vm.evaluationsToday, "Evaluaciones hoy", NovoColors.statusNeutral, Modifier.weight(1f)) {}
+                StatTile(vm.evaluationsToday, "Evaluaciones hoy", NovoColors.statusNeutral, Modifier.weight(1f), showEvaluations)
                 StatTile(vm.pending.size, "Programas pendientes", NovoColors.statusExpiring, Modifier.weight(1f), showPrograms)
                 StatTile(vm.overdueCount, "Programas vencidos", Color(0xFFFF6961), Modifier.weight(1f), showPrograms)
             }

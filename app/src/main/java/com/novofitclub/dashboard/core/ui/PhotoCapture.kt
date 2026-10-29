@@ -76,7 +76,8 @@ fun rememberPhotoCapture(multiple: Boolean = false, onPhotos: (List<CapturedPhot
 private const val MAX_SIDE = 1600
 private const val QUALITY = 85
 
-private fun prepareUpload(context: Context, uri: Uri): CapturedPhoto? = runCatching {
+/** Upright, at most 1600 px, JPEG 85 % — also for images picked from Files (Evaluaciones documents). */
+internal fun prepareUpload(context: Context, uri: Uri): CapturedPhoto? = runCatching {
     val resolver = context.contentResolver
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }

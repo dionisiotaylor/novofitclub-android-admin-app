@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -41,18 +42,20 @@ import com.novofitclub.dashboard.NovoFitClubApp
 import com.novofitclub.dashboard.core.net.ViewedCoach
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.NovoFonts
+import com.novofitclub.dashboard.feature.coach.evaluations.EvaluationsScreen
 import com.novofitclub.dashboard.feature.settings.SettingsScreen
 
 private enum class CoachTab(val label: String, val icon: ImageVector) {
     Today("Hoy", Icons.Outlined.Home),
     Schedule("Horario", Icons.Outlined.CalendarMonth),
     Programs("Programas", Icons.Outlined.FitnessCenter),
+    Evaluations("Evaluaciones", Icons.Outlined.MonitorHeart),
     Settings("Ajustes", Icons.Outlined.Settings),
 }
 
 /**
- * Novo Staff for coaches: Hoy, Horario, Programas (with the routine editor)
- * and Ajustes. [viewing] is set when an admin looks at the app as a coach.
+ * Novo Staff for coaches: Hoy, Horario, Programas (with the routine editor),
+ * Evaluaciones and Ajustes. [viewing] is set when an admin looks at the app as a coach.
  */
 @Composable
 fun CoachRoot(app: NovoFitClubApp, viewing: ViewedCoach?) {
@@ -91,7 +94,7 @@ fun CoachRoot(app: NovoFitClubApp, viewing: ViewedCoach?) {
                         selected = tab == selected,
                         onClick = { selected = tab },
                         icon = { Icon(tab.icon, contentDescription = null) },
-                        label = { Text(tab.label) },
+                        label = { Text(tab.label, maxLines = 1, softWrap = false) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = NovoColors.accent,
                             selectedTextColor = NovoColors.accent,
@@ -106,9 +109,10 @@ fun CoachRoot(app: NovoFitClubApp, viewing: ViewedCoach?) {
     ) { padding ->
         Box(Modifier.fillMaxSize().background(NovoColors.background).padding(padding)) {
             when (selected) {
-                CoachTab.Today -> CoachTodayScreen(app, viewing) { selected = CoachTab.Programs }
+                CoachTab.Today -> CoachTodayScreen(app, viewing, showEvaluations = { selected = CoachTab.Evaluations }) { selected = CoachTab.Programs }
                 CoachTab.Schedule -> CoachScheduleScreen(app, viewing)
                 CoachTab.Programs -> CoachProgramsScreen(app, viewing)
+                CoachTab.Evaluations -> EvaluationsScreen(app, viewing)
                 CoachTab.Settings -> SettingsScreen(app.auth, app.appLock, app.api) {
                     app.push.reset()
                     app.auth.logout()
