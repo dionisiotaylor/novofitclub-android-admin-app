@@ -44,6 +44,10 @@ data class SaleSummaryRow(
     val product: String?,
     val amount: Double?,
     val imageUrl: String?,
+    /** Has a "Diferencia / Ajuste" line — the row shows purple. */
+    val hasAjuste: Boolean = false,
+    /** Paid by canje (status "trade") — the row shows blue and ₡0. */
+    val isCanje: Boolean = false,
 )
 
 data class ReceptionistUser(val id: String, val name: String)
@@ -64,7 +68,11 @@ sealed interface SalesRoute {
  * Port of iOS `SalesViewModel`. Activity-scoped (see [SalesTab]) so the list,
  * filters and in-tab back stack survive switching tabs, like iOS's TabView.
  */
-class SalesViewModel(private val api: WPApiClient) : ViewModel() {
+class SalesViewModel(
+    private val api: WPApiClient,
+    /** `can.edit_member_dates` of the signed-in user, read when a member edit opens. */
+    private val canEditDates: () -> Boolean = { false },
+) : ViewModel() {
     var rows by mutableStateOf<List<SaleSummaryRow>>(emptyList())
         private set
     var searchText by mutableStateOf("")
@@ -135,7 +143,7 @@ class SalesViewModel(private val api: WPApiClient) : ViewModel() {
     }
 
     fun openMemberEdit(detail: MemberDetailState) {
-        push(SalesRoute.MemberEdit(MemberEditState(detail.member.id, api, viewModelScope), detail))
+        push(SalesRoute.MemberEdit(MemberEditState(detail.member.id, api, viewModelScope, canEditDates()), detail))
     }
 
     // endregion
@@ -380,6 +388,8 @@ class SalesViewModel(private val api: WPApiClient) : ViewModel() {
             var product: String? = null
             var amount: Double? = null
             var imageUrl: String? = null
+            var ajustes: List<SaleAjuste> = emptyList()
+            var isCanje = false
             val details = try {
                 api.getObject("sale-creator/v1/sales/$id")
             } catch (e: CancellationException) {
@@ -399,18 +409,23 @@ class SalesViewModel(private val api: WPApiClient) : ViewModel() {
                 val physicalProducts = details.arr("physical_products")?.objects() ?: emptyList()
                 val services = details.arr("services")?.objects() ?: emptyList()
 
+                ajustes = details.arr("ajustes")?.objects().orEmpty().map { SaleAjuste.from(it) }
+                isCanje = details.firstString("status") == "trade"
+
                 product = membership?.firstString("title", "name")
                     ?: physicalProducts.firstOrNull()?.firstString("title", "name")
                     ?: services.firstOrNull()?.firstString("title", "name")
+                    ?: ajustes.firstOrNull()?.let { "Diferencia: ${it.concept}" }
 
                 val membershipPrice = membership?.firstNumber("price") ?: 0.0
                 val productsTotal = physicalProducts.sumOf { (it.firstNumber("price") ?: 0.0) * (it.firstNumber("quantity") ?: 1.0) }
                 val servicesTotal = services.sumOf { it.firstNumber("price") ?: 0.0 }
-                amount = membershipPrice + productsTotal + servicesTotal
+                // Nothing is charged for a canje — ₡0, as in the wp-admin Sales list.
+                amount = if (isCanje) 0.0 else membershipPrice + productsTotal + servicesTotal + ajustes.sumOf { it.amount }
 
                 imageUrl = physicalProducts.firstOrNull()?.imageUrl() ?: membership?.imageUrl()
             }
-            return SaleSummaryRow(id, receipt, date, buyer, product, amount, imageUrl)
+            return SaleSummaryRow(id, receipt, date, buyer, product, amount, imageUrl, hasAjuste = ajustes.isNotEmpty(), isCanje = isCanje)
         }
     }
 }

@@ -34,8 +34,15 @@ data class ProductCatalogItem(
     val imageUrl: String?,
     /** Present only for sellable membership plans (`{time, unit, promo}`). */
     val hasMembershipDuration: Boolean,
+    /** Estudiante (under 18) / Ciudadano de Oro (over 64) plans — `nfc_get_membership_age_restriction()`. */
+    val ageRestriction: AgeRestriction? = null,
+    /** Members a sale of this membership needs, exactly (product "Personas"). */
+    val people: Int = 1,
 ) {
     val isMembership: Boolean get() = !isPhysicalProduct && hasMembershipDuration
+
+    /** A physical product with no units left can't be sold (the server refuses it too: `SlcrValidation::validate_stock()`). */
+    val isOutOfStock: Boolean get() = isPhysicalProduct && (stock ?: 0) <= 0
 
     companion object {
         fun from(fields: JSONObject): ProductCatalogItem? {
@@ -48,9 +55,26 @@ data class ProductCatalogItem(
                 stock = fields.firstNumber("stock")?.toInt(),
                 imageUrl = fields.imageUrl(),
                 hasMembershipDuration = fields.obj("membership_time") != null,
+                ageRestriction = fields.obj("age_restriction")?.let { rule ->
+                    AgeRestriction(rule.firstString("label").orEmpty(), rule.firstNumber("min_age")?.toInt(), rule.firstNumber("max_age")?.toInt())
+                },
+                people = maxOf((fields.firstNumber("people") ?: 1.0).toInt(), 1),
             )
         }
     }
+}
+
+/** A membership's age rule (Estudiante / Ciudadano de Oro). */
+data class AgeRestriction(val label: String, val minAge: Int?, val maxAge: Int?) {
+    fun allows(age: Int): Boolean = !(maxAge != null && age > maxAge) && !(minAge != null && age < minAge)
+
+    /** "menores de 18 años" / "mayores de 64 años" — the web's wording. */
+    val rule: String
+        get() = when {
+            maxAge != null -> "menores de ${maxAge + 1} años"
+            minAge != null -> "mayores de ${minAge - 1} años"
+            else -> label
+        }
 }
 
 /**

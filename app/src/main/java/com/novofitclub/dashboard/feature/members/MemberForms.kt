@@ -1,5 +1,7 @@
 package com.novofitclub.dashboard.feature.members
 
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -83,9 +85,13 @@ fun MemberEditScreen(
             }
             loadError != null -> LoadFailedState(loadError)
             else -> FormColumn {
+                AccessPhotoCard(state.memberId, state.api)
+
                 FormCard {
                     SectionLabel("Nombre")
                     ThemedField(state.name, { state.name = it }, "Nombre completo")
+                    SectionLabel("Cédula", Modifier.padding(top = 4.dp))
+                    ThemedField(state.cedula, { state.cedula = it }, "Cédula", keyboardType = KeyboardType.Number)
                     SectionLabel("Teléfono", Modifier.padding(top = 4.dp))
                     ThemedField(state.phone, { state.phone = it }, "Teléfono", keyboardType = KeyboardType.Phone)
                     SectionLabel("Correo", Modifier.padding(top = 4.dp))
@@ -93,7 +99,7 @@ fun MemberEditScreen(
                 }
 
                 FormCard {
-                    DateRow("Fecha de nacimiento", state.birthday) { state.birthday = it }
+                    BirthdayRow(state.birthday) { state.birthday = it }
                     GenderRow(state.gender) { state.gender = it }
                 }
 
@@ -107,10 +113,20 @@ fun MemberEditScreen(
                         "Este campo aún no se puede editar desde la app.",
                         style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
                     )
-                    DateRow("Fecha de vencimiento", state.membershipExpirationDate) { state.membershipExpirationDate = it }
-                    DateRow("Fecha de vencimiento original", state.originalExpirationDate) { state.originalExpirationDate = it }
-                    DateRow("Día de pago", state.paymentDay) { state.paymentDay = it }
-                    DateRow("Fecha del último pago", state.lastPaymentDate) { state.lastPaymentDate = it }
+                    if (state.canEditDates) {
+                        OptionalDateRow("Fecha de vencimiento", state.membershipExpirationDate) { state.membershipExpirationDate = it }
+                        OptionalDateRow("Fecha de vencimiento original", state.originalExpirationDate) { state.originalExpirationDate = it }
+                        OptionalDateRow("Día de pago", state.paymentDay) { state.paymentDay = it }
+                        OptionalDateRow("Fecha del último pago", state.lastPaymentDate) { state.lastPaymentDate = it }
+                    } else {
+                        ReadOnlyDateRow("Fecha de vencimiento", state.membershipExpirationDate)
+                        ReadOnlyDateRow("Fecha de vencimiento original", state.originalExpirationDate)
+                        ReadOnlyDateRow("Fecha del último pago", state.lastPaymentDate)
+                        Text(
+                            "Estas fechas las cambia una venta o administración.",
+                            style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
+                        )
+                    }
                 }
 
                 FormCard(spacing = 10) {
@@ -139,14 +155,22 @@ fun MemberEditScreen(
 
 // MARK: Create -------------------------------------------------------------
 
-/** "Nuevo miembro" — creates a member via `POST wp/v2/member`. */
+/**
+ * "Nuevo miembro" — creates a member via `POST wp/v2/member`, then offers
+ * the access photo step. [onDone] closes it (Listo).
+ */
 @Composable
 fun MemberCreateScreen(
     state: MemberCreateState,
     vm: MembersViewModel,
     onCancel: () -> Unit,
-    onCreated: () -> Unit,
+    onDone: () -> Unit,
 ) {
+    val createdId = state.createdMemberId
+    if (createdId != null) {
+        AccessPhotoStep(state, createdId, onDone)
+        return
+    }
     val draft = state.draft
     // Read live from the list view model, which may still be loading pages in the background.
     val duplicateCedula = vm.memberWithCedula(draft.cedula)
@@ -157,7 +181,7 @@ fun MemberCreateScreen(
         onCancel = onCancel,
         saveEnabled = !state.isSaving && draft.canSave && duplicateCedula == null,
         isSaving = state.isSaving,
-        onSave = { state.save(onCreated) },
+        onSave = { state.save(onCreated = vm::load, onNoId = onDone) },
     ) {
         FormColumn {
             FormCard {
@@ -219,6 +243,33 @@ fun MemberCreateScreen(
             state.saveError?.let {
                 Text(it, style = NovoFonts.medium(14).copy(color = NovoColors.accent))
             }
+        }
+    }
+}
+
+@Composable
+private fun AccessPhotoStep(state: MemberCreateState, memberId: String, onDone: () -> Unit) {
+    BackHandler(onBack = onDone)
+    Column(Modifier.fillMaxSize().background(NovoColors.background)) {
+        Box(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp)) {
+            Text("Foto de acceso", style = NovoFonts.semibold(17), modifier = Modifier.align(Alignment.Center))
+            TextButton(onClick = onDone, modifier = Modifier.align(Alignment.CenterEnd)) {
+                Text("Listo", style = NovoFonts.semibold(16).copy(color = NovoColors.accent))
+            }
+        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = NovoColors.statusActive, modifier = Modifier.size(18.dp))
+                Text("${state.draft.name.trim()} quedó creado.", style = NovoFonts.semibold(15).copy(color = NovoColors.statusActive))
+            }
+            Text(
+                "Tomale la foto de acceso ahora para que pueda pasar por el torniquete. También se puede hacer después desde su ficha.",
+                style = NovoFonts.body(13).copy(color = NovoColors.textSecondary),
+            )
+            AccessPhotoCard(memberId, state.api)
         }
     }
 }
@@ -343,6 +394,55 @@ private fun DateRow(title: String, date: LocalDate, onChange: (LocalDate) -> Uni
         ) {
             DatePicker(state = pickerState, colors = colors)
         }
+    }
+}
+
+/**
+ * Birthday with the age next to it; a member without one shows "Sin fecha"
+ * and an "Agregar" that starts at 25 years ago — never today's date, which
+ * made the member 0 years old for the age-restricted plans.
+ */
+@Composable
+private fun BirthdayRow(date: LocalDate?, onChange: (LocalDate?) -> Unit) {
+    if (date != null) {
+        val age = java.time.Period.between(date, LocalDate.now()).years
+        DateRow("Fecha de nacimiento · $age años", date) { onChange(it) }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Fecha de nacimiento", Modifier.weight(1f))
+            Text("Sin fecha", style = NovoFonts.medium(14).copy(color = NovoColors.textSecondary))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Agregar",
+                style = NovoFonts.semibold(14).copy(color = NovoColors.accent),
+                modifier = Modifier.clickable { onChange(LocalDate.now().minusYears(25)) },
+            )
+        }
+    }
+}
+
+/** A membership date that may be missing: "Sin fecha" until one is picked. */
+@Composable
+private fun OptionalDateRow(title: String, date: LocalDate?, onChange: (LocalDate) -> Unit) {
+    if (date != null) {
+        DateRow(title, date, onChange)
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel(title, Modifier.weight(1f))
+            Text(
+                "Sin fecha · Agregar",
+                style = NovoFonts.medium(14).copy(color = NovoColors.accent),
+                modifier = Modifier.clickable { onChange(LocalDate.now()) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReadOnlyDateRow(title: String, date: LocalDate?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        SectionLabel(title, Modifier.weight(1f))
+        Text(date?.format(compactDateFormat) ?: "—", style = NovoFonts.medium(15).copy(color = NovoColors.textSecondary))
     }
 }
 

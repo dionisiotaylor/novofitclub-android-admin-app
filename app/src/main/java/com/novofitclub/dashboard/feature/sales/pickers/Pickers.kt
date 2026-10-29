@@ -1,5 +1,8 @@
 package com.novofitclub.dashboard.feature.sales.pickers
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -121,7 +124,7 @@ private fun SelectedCheck() {
 /**
  * Multi-select member picker for the sale editor. Selections are tracked
  * locally and only applied when the user taps "Listo", so cancelling makes
- * no change.
+ * no change. With [singleSelection] (Congelados) a tap picks and closes.
  */
 @Composable
 internal fun MemberPickerScreen(
@@ -129,10 +132,11 @@ internal fun MemberPickerScreen(
     alreadySelected: List<SaleEditPayload.MemberRef>,
     onDone: (List<SaleEditPayload.MemberRef>) -> Unit,
     onCancel: () -> Unit,
+    singleSelection: Boolean = false,
 ) {
     // Insertion-ordered so the sale keeps the order members were picked in.
     val selected = remember {
-        mutableStateMapOf<Int, String>().apply { alreadySelected.forEach { put(it.memberPostId, it.displayName) } }
+        mutableStateMapOf<Int, SaleEditPayload.MemberRef>().apply { alreadySelected.forEach { put(it.memberPostId, it) } }
     }
     val order = remember { mutableStateListOf<Int>().apply { addAll(alreadySelected.map { it.memberPostId }) } }
 
@@ -142,18 +146,18 @@ internal fun MemberPickerScreen(
     }
 
     PickerScaffold(
-        title = "Agregar miembros",
+        title = if (singleSelection) "Elegir miembro" else "Agregar miembros",
         onCancel = onCancel,
         trailing = {
-            TextAction("Listo", bold = true, onClick = {
-                onDone(order.mapNotNull { id -> selected[id]?.let { SaleEditPayload.MemberRef(id, it) } })
-            })
+            if (!singleSelection) {
+                TextAction("Listo", bold = true, onClick = { onDone(order.mapNotNull { selected[it] }) })
+            }
         },
     ) {
         SearchField(
             value = source.query,
             onValueChange = source::updateQuery,
-            placeholder = "Buscar por nombre",
+            placeholder = "Buscar por nombre o cédula",
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
         val error = source.errorMessage
@@ -169,18 +173,24 @@ internal fun MemberPickerScreen(
                     val postId = member.id.toIntOrNull()
                     PickerRow(onClick = {
                         if (postId == null) return@PickerRow
-                        if (selected.containsKey(postId)) {
+                        val ref = SaleEditPayload.MemberRef(postId, member.name, member.age)
+                        if (singleSelection) {
+                            onDone(listOf(ref))
+                        } else if (selected.containsKey(postId)) {
                             selected.remove(postId)
                             order.remove(postId)
                         } else {
-                            selected[postId] = member.name
+                            selected[postId] = ref
                             order.add(postId)
                         }
                     }) {
                         MemberAvatar(member.initials, member.avatarColor, member.photoUrl, 36.dp)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(member.name, style = NovoFonts.medium(15))
-                            Text("Cédula ${member.memberId}", style = NovoFonts.body(12).copy(color = NovoColors.textSecondary))
+                            Text(
+                                listOfNotNull("Cédula ${member.memberId}", member.age?.let { "$it años" }).joinToString(" · "),
+                                style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
+                            )
                         }
                         if (postId != null && selected.containsKey(postId)) SelectedCheck()
                     }
@@ -277,9 +287,10 @@ internal fun ProductPickerScreen(
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(catalog.physicalProducts(query), key = { it.id }) { item ->
                     val alreadyIn = item.id in alreadySelectedIds
+                    val unavailable = alreadyIn || item.isOutOfStock
                     PickerRow(
-                        enabled = !alreadyIn,
-                        modifier = Modifier.alpha(if (alreadyIn) 0.5f else 1f),
+                        enabled = !unavailable,
+                        modifier = Modifier.alpha(if (unavailable) 0.5f else 1f),
                         onClick = {
                             if (item.id in selectedIds) selectedIds.remove(item.id) else selectedIds.add(item.id)
                         },
@@ -288,7 +299,12 @@ internal fun ProductPickerScreen(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(item.title, style = NovoFonts.medium(15))
                             Text(
-                                Formatters.money(item.price)?.let { "$it · stock ${item.stock ?: 0}" } ?: "—",
+                                buildAnnotatedString {
+                                    append(Formatters.money(item.price) ?: "—")
+                                    withStyle(SpanStyle(color = if (item.isOutOfStock) NovoColors.statusExpired else NovoColors.textSecondary)) {
+                                        append(if (item.isOutOfStock) " · Agotado" else " · Quedan ${item.stock ?: 0}")
+                                    }
+                                },
                                 style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
                             )
                         }

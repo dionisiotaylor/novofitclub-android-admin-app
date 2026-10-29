@@ -16,6 +16,11 @@ object Formatters {
 
     fun money(value: Double?): String? = value?.let { decimal.format(it) }
 
+    private val colonesFormat = DecimalFormat("#,##0", DecimalFormatSymbols(Locale.US))
+
+    /** "₡24,950" — whole colones, as the reception screens show them. */
+    fun colones(value: Double): String = "₡" + colonesFormat.format(value)
+
     private val parsers = listOf(
         "yyyy-MM-dd'T'HH:mm:ssXXX",
         "yyyy-MM-dd'T'HH:mm:ss",

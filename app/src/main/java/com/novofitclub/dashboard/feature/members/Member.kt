@@ -2,6 +2,7 @@ package com.novofitclub.dashboard.feature.members
 
 import androidx.compose.ui.graphics.Color
 import com.novofitclub.dashboard.core.net.firstString
+import com.novofitclub.dashboard.core.net.num
 import com.novofitclub.dashboard.core.net.str
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.initials
@@ -60,6 +61,8 @@ data class Member(
     val avatarColor: Color,
     /** Thumbnail of the turnstile access photo, when there is one. */
     val photoUrl: String? = null,
+    /** From the birthday, server-side; null without one. A sale's age rule reads it. */
+    val age: Int? = null,
 ) {
     companion object {
         private const val EXPIRING_WINDOW_DAYS = 7
@@ -83,6 +86,7 @@ data class Member(
                 initials = initials(name),
                 avatarColor = NovoColors.avatarPalette[fallbackIndex % NovoColors.avatarPalette.size],
                 photoUrl = fields.firstString("photo_url"),
+                age = fields.num("age")?.toInt(),
             )
         }
 

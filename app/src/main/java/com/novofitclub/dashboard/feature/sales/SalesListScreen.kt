@@ -414,7 +414,7 @@ private fun SaleRow(row: SaleSummaryRow, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .cardBackground()
+            .saleRowBackground(row.isCanje, row.hasAjuste)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
@@ -430,8 +430,11 @@ private fun SaleRow(row: SaleSummaryRow, onClick: () -> Unit) {
                 )
             }
         }
-        Formatters.money(row.amount)?.let {
-            Text(it, style = NovoFonts.semibold(15).copy(color = NovoColors.accent))
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SaleTagsView(SaleTag.of(row.isCanje, row.hasAjuste))
+            Formatters.money(row.amount)?.let {
+                Text(it, style = NovoFonts.semibold(15).copy(color = if (row.isCanje) NovoColors.canje else NovoColors.accent))
+            }
         }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,

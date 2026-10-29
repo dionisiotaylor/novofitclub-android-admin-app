@@ -21,6 +21,9 @@ class NovoFitClubApp : Application() {
     /** A screen a tapped push asks for (`open` in its data): "schedule" opens a coach's Horario. */
     val pendingOpen = MutableStateFlow<String?>(null)
 
+    /** The sale whose push was tapped (`sale_id`); RootScreen opens it for admins, once unlocked. */
+    val pendingSaleId = MutableStateFlow<String?>(null)
+
     override fun onCreate() {
         super.onCreate()
         auth = AuthManager(this)

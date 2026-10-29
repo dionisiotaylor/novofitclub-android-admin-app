@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -44,6 +45,17 @@ import com.novofitclub.dashboard.R
 /** Rounded card surface used throughout the design. */
 fun Modifier.cardBackground(): Modifier =
     this.clip(RoundedCornerShape(NovoDimens.cornerRadius)).background(NovoColors.card)
+
+/**
+ * A card tinted with one colour and a left stripe of it: purple for
+ * "Diferencia / Ajuste" content (like the purple rows of the wp-admin Sales
+ * list), blue for a sale paid by canje.
+ */
+fun Modifier.tintedCard(tint: Color): Modifier =
+    this.clip(RoundedCornerShape(NovoDimens.cornerRadius))
+        .background(NovoColors.card)
+        .background(tint.copy(alpha = 0.12f))
+        .drawBehind { drawRect(tint, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height)) }
 
 /** Filled crimson pill button — the primary CTA style throughout the design. */
 @Composable

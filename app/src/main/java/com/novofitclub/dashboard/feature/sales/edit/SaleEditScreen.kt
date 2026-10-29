@@ -24,7 +24,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -58,6 +63,7 @@ import com.novofitclub.dashboard.core.ui.SaleThumbnail
 import com.novofitclub.dashboard.core.ui.SectionLabel
 import com.novofitclub.dashboard.core.ui.ThemedField
 import com.novofitclub.dashboard.core.ui.cardBackground
+import com.novofitclub.dashboard.core.ui.tintedCard
 import com.novofitclub.dashboard.core.util.Formatters
 import com.novofitclub.dashboard.feature.sales.CenteredSpinner
 import com.novofitclub.dashboard.feature.sales.OverlayLayer
@@ -174,7 +180,7 @@ internal fun SaleEditScreen(
                             vm.update { current ->
                                 current.copy(
                                     physicalProducts = current.physicalProducts + added.map { item ->
-                                        ProductLine(item.id, 1, item.title, item.price, item.imageUrl)
+                                        ProductLine(item.id, 1, item.title, item.price, item.imageUrl, stock = item.stock)
                                     },
                                 )
                             }
@@ -271,6 +277,7 @@ private fun EditForm(
                 onChange = { lines -> vm.update { it.copy(services = lines) } },
             )
         }
+        AjustesSection(payload) { transform -> vm.update(transform) }
 
         PaymentSection(payload) { transform -> vm.update(transform) }
         NotesSection(payload) { transform -> vm.update(transform) }
@@ -287,14 +294,14 @@ private fun EditForm(
 // region Shared bits
 
 @Composable
-private fun AddButton(text: String, onClick: () -> Unit, size: Int = 13) {
+private fun AddButton(text: String, onClick: () -> Unit, size: Int = 13, tint: Color = NovoColors.accent) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(4.dp),
     ) {
-        Icon(Icons.Filled.AddCircle, contentDescription = null, tint = NovoColors.accent, modifier = Modifier.size((size + 5).dp))
-        Text(text, style = NovoFonts.semibold(size).copy(color = NovoColors.accent))
+        Icon(Icons.Filled.AddCircle, contentDescription = null, tint = tint, modifier = Modifier.size((size + 5).dp))
+        Text(text, style = NovoFonts.semibold(size).copy(color = tint))
     }
 }
 
@@ -386,6 +393,7 @@ private fun MembershipSection(isCreating: Boolean, payload: SaleEditPayload, onP
                     }
                     RemoveButton(onClear)
                 }
+                AgeWarning(payload)
             } else {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -405,7 +413,7 @@ private fun MembershipSection(isCreating: Boolean, payload: SaleEditPayload, onP
             SectionLabel("Membresía")
             Text(label, style = NovoFonts.semibold(16))
             Text(Formatters.money(payload.membershipPrice) ?: "—", style = NovoFonts.semibold(15).copy(color = NovoColors.accent))
-            Text("Este campo aún no se puede editar desde la app.", style = NovoFonts.body(12).copy(color = NovoColors.textSecondary))
+            LockNote("La membresía y los miembros de una venta ya registrada no se pueden cambiar. Para corregirlos, borra esta venta y regístrala de nuevo.")
         }
     }
 }
@@ -417,7 +425,13 @@ private fun MembershipSection(isCreating: Boolean, payload: SaleEditPayload, onP
 @Composable
 private fun MembersSection(payload: SaleEditPayload, onAdd: () -> Unit, onRemove: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionHeaderRow("Miembros") { AddButton("Agregar", onAdd) }
+        SectionHeaderRow("Miembros") { if (!payload.membersLocked) AddButton("Agregar", onAdd) }
+        payload.peopleProblem?.let { problem ->
+            IconNote(Icons.Filled.Groups, problem, NovoColors.statusExpiring, NovoFonts.medium(12))
+        }
+        if (payload.membersLocked && payload.membershipLabel == null) {
+            LockNote("Los miembros de una venta ya registrada que les sumó días no se pueden cambiar. Para corregirlos, borra esta venta y regístrala de nuevo.")
+        }
         if (payload.members.isEmpty()) {
             EmptyHint("Sin miembros asociados.")
         } else {
@@ -427,8 +441,12 @@ private fun MembersSection(payload: SaleEditPayload, onAdd: () -> Unit, onRemove
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
-                        Text(member.displayName, style = NovoFonts.medium(15), modifier = Modifier.weight(1f))
-                        RemoveButton { onRemove(member.memberPostId) }
+                        Text(member.displayName, style = NovoFonts.medium(15))
+                        member.age?.let {
+                            Text("$it años", style = NovoFonts.body(12).copy(color = NovoColors.textSecondary), modifier = Modifier.padding(start = 8.dp))
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (!payload.membersLocked) RemoveButton { onRemove(member.memberPostId) }
                     }
                     if (index < payload.members.size - 1) RowDivider()
                 }
@@ -480,8 +498,15 @@ private fun ProductRow(line: ProductLine, onQuantity: (Int) -> Unit, onRemove: (
             line.price?.let {
                 Text(Formatters.money(it * line.quantity) ?: "—", style = NovoFonts.body(12).copy(color = NovoColors.accent))
             }
+            val stock = line.stock
+            if (stock != null && line.quantity >= stock) {
+                Text(
+                    if (stock == 1) "Queda 1 en inventario" else "Quedan $stock en inventario",
+                    style = NovoFonts.body(11).copy(color = NovoColors.statusExpiring),
+                )
+            }
         }
-        Stepper(value = line.quantity, range = 1..99, onChange = onQuantity)
+        Stepper(value = line.quantity, range = 1..line.maxQuantity, onChange = onQuantity)
         RemoveButton(onRemove)
     }
 }
@@ -515,6 +540,132 @@ private fun StepperButton(symbol: String, enabled: Boolean, onClick: () -> Unit)
     ) {
         Text(symbol, style = NovoFonts.semibold(16))
     }
+}
+
+// endregion
+
+// region Diferencia / Ajuste
+
+@Composable
+private fun AjustesSection(payload: SaleEditPayload, update: ((SaleEditPayload) -> SaleEditPayload) -> Unit) {
+    val locked = payload.ajustesLocked
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SectionHeaderRow("Diferencia / Ajuste") {
+            if (!locked) AddButton("Agregar", { update { it.addingAjuste() } }, tint = NovoColors.ajuste)
+        }
+        if (locked) {
+            if (payload.ajustes.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().tintedCard(NovoColors.ajuste)) {
+                    payload.ajustes.forEachIndexed { index, line ->
+                        LockedAjusteRow(line)
+                        if (index < payload.ajustes.size - 1) RowDivider()
+                    }
+                }
+            }
+            LockNote("Las diferencias de una venta ya registrada no se pueden cambiar. Para corregirlas, borra esta venta y regístrala de nuevo.")
+        } else {
+            Text(
+                "Para cobrar una diferencia de precio sin crear un producto (por ejemplo, pasar de Pole 1 a 2 días a mitad de mes). No cambia fechas, salvo que indiques días a sumar. Se avisa por correo a administración.",
+                style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
+            )
+            payload.ajustes.forEach { line ->
+                AjusteEditor(
+                    line = line,
+                    onChange = { changed -> update { p -> p.copy(ajustes = p.ajustes.map { if (it.id == line.id) changed else it }) } },
+                    onRemove = { update { p -> p.copy(ajustes = p.ajustes.filterNot { it.id == line.id }) } },
+                )
+            }
+            val problem = payload.ajusteProblem
+            if (payload.ajustes.isNotEmpty() && problem != null) {
+                Text(problem, style = NovoFonts.medium(12).copy(color = NovoColors.statusExpiring))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AjusteEditor(line: SaleEditPayload.AjusteLine, onChange: (SaleEditPayload.AjusteLine) -> Unit, onRemove: () -> Unit) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth().tintedCard(NovoColors.ajuste).padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ThemedField(
+                value = line.concept,
+                onValueChange = { onChange(line.copy(concept = it.take(120))) },
+                placeholder = "Concepto (ej.: Diferencia Pole 1 a 2 días, octubre)",
+                modifier = Modifier.weight(1f),
+            )
+            Box(Modifier.padding(top = 16.dp)) { RemoveButton(onRemove) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ThemedField(
+                value = line.amountText,
+                onValueChange = { onChange(line.copy(amountText = it)) },
+                placeholder = "Monto",
+                keyboardType = KeyboardType.Number,
+                modifier = Modifier.weight(1f),
+            )
+            ThemedField(
+                value = line.daysText,
+                onValueChange = { onChange(line.copy(daysText = it.filter(Char::isDigit))) },
+                placeholder = "Días (opcional)",
+                keyboardType = KeyboardType.Number,
+                modifier = Modifier.width(140.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LockedAjusteRow(line: SaleEditPayload.AjusteLine) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(line.concept, style = NovoFonts.medium(14))
+            if (line.days > 0) {
+                Text(
+                    if (line.days == 1) "Suma 1 día" else "Suma ${line.days} días",
+                    style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
+                )
+            }
+        }
+        Text(Formatters.money(line.amount) ?: "—", style = NovoFonts.semibold(14).copy(color = NovoColors.ajuste))
+    }
+}
+
+// endregion
+
+// region Locks and warnings
+
+@Composable
+private fun IconNote(icon: ImageVector, text: String, color: Color, style: TextStyle) {
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.padding(top = 1.dp).size(14.dp))
+        Text(text, style = style.copy(color = color))
+    }
+}
+
+@Composable
+private fun LockNote(text: String) {
+    IconNote(Icons.Filled.Lock, text, NovoColors.textSecondary, NovoFonts.body(12))
+}
+
+/** The web's age warning (sale-creator.js renderSelectedMembership()). */
+@Composable
+private fun AgeWarning(payload: SaleEditPayload) {
+    val rule = payload.membershipAgeRestriction ?: return
+    val violators = payload.ageViolators
+    if (violators.isEmpty()) return
+    IconNote(
+        Icons.Filled.Warning,
+        "\"${rule.label}\" aplica solo para ${rule.rule}. No cumple: ${violators.joinToString(", ") { it.displayName }}. La venta quedará pendiente de revisión por administración.",
+        NovoColors.statusExpiring,
+        NovoFonts.medium(12),
+    )
 }
 
 // endregion

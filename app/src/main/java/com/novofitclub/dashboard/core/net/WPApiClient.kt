@@ -78,6 +78,30 @@ class WPApiClient(
         send(request("DELETE", path))
     }
 
+    /** Deletes and returns the server's answer (e.g. the member screen after removing a program). */
+    suspend fun deleteReturningObject(path: String): JSONObject =
+        parse(send(request("DELETE", path))) as? JSONObject ?: JSONObject()
+
+    /**
+     * POSTs raw bytes as the body (a JPEG photo: the MNT access photo, a
+     * freeze's evidence) — the plugins read the body itself, not multipart.
+     */
+    suspend fun uploadBytes(path: String, bytes: ByteArray, contentType: String, query: Map<String, String> = emptyMap()): JSONObject {
+        val credentials = auth.currentCredentials ?: throw WPApiException.NotAuthenticated()
+        val url = "${credentials.baseUrl}/wp-json/${path.trimStart('/')}".toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.apply { query.forEach { (k, v) -> addQueryParameter(k, v) } }
+            ?.build()
+            ?: throw WPApiException.InvalidUrl()
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", credentials.basicAuthHeader)
+            .header("Accept", "application/json")
+            .post(bytes.toRequestBody(contentType.toMediaType()))
+            .build()
+        return parse(send(request)) as? JSONObject ?: JSONObject()
+    }
+
     private fun request(
         method: String,
         path: String,

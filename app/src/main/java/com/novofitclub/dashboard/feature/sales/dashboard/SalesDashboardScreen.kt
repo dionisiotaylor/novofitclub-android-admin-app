@@ -286,11 +286,12 @@ private fun ClientsPerPlanCard(stats: DashboardStats) {
 @Composable
 private fun RevenueSplitCard(stats: DashboardStats) {
     val s = stats.revenueSplit
-    val total = maxOf(s.memberships + s.products + s.services, 1.0)
+    val total = maxOf(s.memberships + s.products + s.services + s.ajustes, 1.0)
     BreakdownCard("Ingresos: membresías vs productos", Icons.Filled.Inventory2) {
         BreakdownRow("Membresías", Formatters.money(s.memberships) ?: "—", s.memberships / total, NovoColors.accent)
         BreakdownRow("Productos físicos", Formatters.money(s.products) ?: "—", s.products / total, NovoColors.statusNeutral)
         BreakdownRow("Servicios", Formatters.money(s.services) ?: "—", s.services / total, NovoColors.statusExpiring)
+        if (s.ajustes > 0) BreakdownRow("Diferencias", Formatters.money(s.ajustes) ?: "—", s.ajustes / total, NovoColors.ajuste)
     }
 }
 

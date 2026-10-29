@@ -122,13 +122,13 @@ fun InitialsAvatar(name: String, index: Int, size: Dp = 44.dp) {
  * while the photo loads or if it fails, so it never shows blank.
  */
 @Composable
-fun MemberAvatar(initials: String, color: Color, photoUrl: String?, size: Dp) {
+fun MemberAvatar(initials: String, color: Color, photoUrl: String?, size: Dp, textColor: Color = NovoColors.textPrimary) {
     val placeholder = @Composable {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier.size(size).clip(CircleShape).background(color),
         ) {
-            Text(initials, style = NovoFonts.semibold((size.value * 0.34f).toInt()))
+            Text(initials, style = NovoFonts.semibold((size.value * 0.34f).toInt()).copy(color = textColor))
         }
     }
     if (photoUrl.isNullOrEmpty()) {

@@ -92,6 +92,7 @@ class MainActivity : FragmentActivity() {
     /** A tapped push carries `open` (our own notification's extra, or FCM's data when the system shows it). */
     private fun handleOpen(intent: Intent?) {
         intent?.getStringExtra("open")?.takeIf { it.isNotEmpty() }?.let { app.pendingOpen.value = it }
+        intent?.getStringExtra("sale_id")?.takeIf { it.isNotEmpty() }?.let { app.pendingSaleId.value = it }
     }
 
     override fun onResume() {

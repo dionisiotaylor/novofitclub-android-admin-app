@@ -28,8 +28,17 @@ object NovoColors {
     val statusExpiring = Color(0xFFFF9F0A)
     val statusExpired = Color(0xFFFF3B30)
 
-    // Sale status that isn't pass/fail (e.g. "trade").
+    // Neutral light-blue highlight (SINPE, charts) — not a pass/fail state.
     val statusNeutral = Color(0xFF5AC8FA)
+
+    // A sale with a "Diferencia / Ajuste" line — purple, as in the wp-admin
+    // Sales list: yellow already means "pending payment" there and red
+    // "payment doesn't add up".
+    val ajuste = Color(0xFFA78BFA)
+
+    // A sale paid by "canje" (status "trade": nothing was charged) — blue,
+    // drawn the same way as the purple "Diferencia" sales.
+    val canje = Color(0xFF60A5FA)
 
     // Member avatar backgrounds, rotated by list position.
     val avatarPalette = listOf(

@@ -11,6 +11,7 @@ import com.novofitclub.dashboard.core.net.firstNumber
 import com.novofitclub.dashboard.core.net.firstString
 import com.novofitclub.dashboard.core.net.imageUrl
 import com.novofitclub.dashboard.core.net.obj
+import com.novofitclub.dashboard.core.net.objects
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.initials
 import com.novofitclub.dashboard.core.ui.splitEmbeddedId
@@ -71,12 +72,23 @@ class SaleDetail(val id: String, fields: JSONObject) {
     val author: String?
     val physicalProducts: List<SaleLineItem>
     val services: List<SaleLineItem>
+    val ajustes: List<SaleAjuste>
     val notes: List<String>
+    /**
+     * Paid by canje (status "trade"): nothing was charged, so [amount] is 0
+     * (as in the wp-admin Sales list) and [canjeValue] is what was given.
+     */
+    val isCanje: Boolean
+    val canjeValue: Double
+
+    /** Shown purple in the lists, like the wp-admin Sales list. */
+    val hasAjuste: Boolean get() = ajustes.isNotEmpty()
 
     init {
         val (label, color) = statusInfo(fields.firstString("status"))
         statusLabel = label
         statusColor = color
+        isCanje = fields.firstString("status")?.lowercase() == "trade"
 
         dateLabel = Formatters.friendlyDate(fields.firstString("post_date", "date_created"))
 
@@ -89,7 +101,10 @@ class SaleDetail(val id: String, fields: JSONObject) {
 
         val productsTotal = physicalProducts.sumOf { (it.price ?: 0.0) * it.quantity }
         val servicesTotal = services.sumOf { it.price ?: 0.0 }
-        amount = membershipPrice + productsTotal + servicesTotal
+        ajustes = fields.arr("ajustes")?.objects().orEmpty().map { SaleAjuste.from(it) }
+        val itemsTotal = membershipPrice + productsTotal + servicesTotal + ajustes.sumOf { it.amount }
+        canjeValue = if (isCanje) itemsTotal else 0.0
+        amount = if (isCanje) 0.0 else itemsTotal
 
         when {
             membershipTitle != null -> {
@@ -100,6 +115,9 @@ class SaleDetail(val id: String, fields: JSONObject) {
             }
             services.isNotEmpty() -> {
                 productLabel = "SERVICIO"; productTitle = services.first().title
+            }
+            ajustes.isNotEmpty() -> {
+                productLabel = "DIFERENCIA"; productTitle = "Diferencia: ${ajustes.first().concept}"
             }
             else -> {
                 productLabel = "VENTA"; productTitle = "Venta"
@@ -144,7 +162,7 @@ class SaleDetail(val id: String, fields: JSONObject) {
             "completed" -> "Completada" to NovoColors.statusActive
             "pending" -> "Pendiente" to NovoColors.statusExpiring
             "cancelled", "canceled" -> "Cancelada" to NovoColors.statusExpired
-            "trade" -> "Canje" to NovoColors.statusNeutral
+            "trade" -> "Canje" to NovoColors.canje
             else -> (raw?.capitalizedWords() ?: "—") to NovoColors.textSecondary
         }
 

@@ -60,6 +60,7 @@ import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.SaleThumbnail
 import com.novofitclub.dashboard.core.ui.cardBackground
+import com.novofitclub.dashboard.core.ui.tintedCard
 import com.novofitclub.dashboard.core.util.Formatters
 import com.novofitclub.dashboard.feature.members.Member
 import com.novofitclub.dashboard.feature.sales.edit.SaleEditScreen
@@ -389,7 +390,10 @@ private fun InfoCard(
             }
         }
 
-        if (detail.payments.isNotEmpty()) {
+        // A canje has no payment at all: its card takes the Pago section's place.
+        if (detail.isCanje) {
+            DetailSection("Pago") { CanjeCard(detail.canjeValue) }
+        } else if (detail.payments.isNotEmpty()) {
             DetailSection("Pago") { PaymentCard(detail.payments) }
         }
 
@@ -403,6 +407,10 @@ private fun InfoCard(
 
         if (detail.services.isNotEmpty()) {
             DetailSection("Servicios") { LineItemsCard(detail.services) }
+        }
+
+        if (detail.hasAjuste) {
+            DetailSection("Diferencia / Ajuste") { AjustesCard(detail.ajustes) }
         }
 
         if (detail.notes.isNotEmpty()) {
@@ -425,11 +433,48 @@ private fun HeroText(detail: SaleDetail) {
         Text(detail.productTitle, style = NovoFonts.semibold(22))
         Text(
             Formatters.money(detail.amount) ?: "—",
-            style = NovoFonts.heading(32).copy(color = NovoColors.accent),
+            style = NovoFonts.heading(32).copy(color = if (detail.isCanje) NovoColors.canje else NovoColors.accent),
             modifier = Modifier.padding(top = 4.dp),
         )
         detail.dateLabel?.let {
             Text(it, style = NovoFonts.body(13).copy(color = NovoColors.textSecondary))
+        }
+    }
+}
+
+@Composable
+private fun CanjeCard(value: Double) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().tintedCard(NovoColors.canje).padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SaleTagPill(SaleTag.Canje)
+            Text("Venta por canje", style = NovoFonts.medium(14), modifier = Modifier.weight(1f))
+            if (value > 0) Text(Formatters.money(value) ?: "—", style = NovoFonts.semibold(14).copy(color = NovoColors.canje))
+        }
+        Text(
+            if (value > 0) "No se cobró nada: ese es el valor de lo canjeado. No suma a la caja ni a los totales."
+            else "No se cobró nada. No suma a la caja ni a los totales.",
+            style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
+        )
+    }
+}
+
+@Composable
+private fun AjustesCard(ajustes: List<SaleAjuste>) {
+    Column(Modifier.fillMaxWidth().tintedCard(NovoColors.ajuste)) {
+        ajustes.forEachIndexed { index, ajuste ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(ajuste.concept, style = NovoFonts.medium(14))
+                    if (ajuste.days > 0) {
+                        Text(if (ajuste.days == 1) "Sumó 1 día" else "Sumó ${ajuste.days} días", style = NovoFonts.body(12).copy(color = NovoColors.textSecondary))
+                    }
+                }
+                Text(Formatters.money(ajuste.amount) ?: "—", style = NovoFonts.semibold(14).copy(color = NovoColors.ajuste))
+            }
+            if (index < ajustes.size - 1) RowDivider()
         }
     }
 }

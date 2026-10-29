@@ -41,7 +41,40 @@ data class AuthState(
     /** Staff role from `novo-staff/v1/me`: "admin", "receptionist", "coach" or "other"; cached across launches. */
     val role: String? = null,
     val displayName: String = "",
+    /** What the role may do, from `novo-staff/v1/me` (`can`). Convenience only: the server checks again. */
+    val can: StaffCan = StaffCan(),
+    /** Set when the role couldn't be loaded and there's no cached one — the tabs can't be decided yet. */
+    val profileError: String? = null,
 )
+
+/** The `can` object of `novo-staff/v1/me`. */
+data class StaffCan(
+    val editMemberDates: Boolean = false,
+    val editFechaAdmin: Boolean = false,
+    val createSales: Boolean = false,
+    val editSales: Boolean = false,
+    val editMembers: Boolean = false,
+    val deleteMembers: Boolean = false,
+    val seeAllSales: Boolean = false,
+    val seeMonthTotals: Boolean = false,
+    val seeCash: Boolean = false,
+    val requestFreezes: Boolean = false,
+) {
+    companion object {
+        fun from(json: JSONObject?) = StaffCan(
+            editMemberDates = json?.bool("edit_member_dates") ?: false,
+            editFechaAdmin = json?.bool("edit_fecha_admin") ?: false,
+            createSales = json?.bool("create_sales") ?: false,
+            editSales = json?.bool("edit_sales") ?: false,
+            editMembers = json?.bool("edit_members") ?: false,
+            deleteMembers = json?.bool("delete_members") ?: false,
+            seeAllSales = json?.bool("see_all_sales") ?: false,
+            seeMonthTotals = json?.bool("see_month_totals") ?: false,
+            seeCash = json?.bool("see_cash") ?: false,
+            requestFreezes = json?.bool("request_freezes") ?: false,
+        )
+    }
+}
 
 /** A coach an admin is looking at the app as ("Ver como entrenador"): their gym-scheduler employee. */
 data class ViewedCoach(val id: Int, val name: String, val color: String?) {
@@ -78,6 +111,7 @@ class AuthManager(context: Context) {
                 username = savedUser,
                 role = prefs.getString(KEY_ROLE, null),
                 displayName = prefs.getString(KEY_NAME, null).orEmpty(),
+                can = StaffCan.from(prefs.getString(KEY_CAN, null)?.let { runCatching { JSONObject(it) }.getOrNull() }),
             )
         } else {
             AuthState(siteUrl = savedUrl)
@@ -161,11 +195,12 @@ class AuthManager(context: Context) {
                     when (response.code) {
                         in 200..299 -> runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
                         401 -> 401
-                        else -> null
+                        404 -> "El sitio todavía no tiene instalado el plugin Novo Staff API."
+                        else -> "No se pudo cargar tu perfil (error ${response.code})."
                     }
                 }
             } catch (e: IOException) {
-                null
+                e.localizedMessage ?: "No se pudo contactar al servidor."
             }
         }
         when (outcome) {
@@ -174,9 +209,12 @@ class AuthManager(context: Context) {
             is JSONObject -> {
                 val role = outcome.str("role") ?: "other"
                 val name = outcome.str("name").orEmpty()
-                prefs.edit().putString(KEY_ROLE, role).putString(KEY_NAME, name).apply()
-                _state.update { it.copy(role = role, displayName = name) }
+                val can = outcome.obj("can")
+                prefs.edit().putString(KEY_ROLE, role).putString(KEY_NAME, name).putString(KEY_CAN, can?.toString()).apply()
+                _state.update { it.copy(role = role, displayName = name, can = StaffCan.from(can), profileError = null) }
             }
+            // Offline launch keeps the cached role; without one, say why the app can't continue.
+            is String -> _state.update { if (it.role == null) it.copy(profileError = outcome) else it }
         }
     }
 
@@ -194,9 +232,9 @@ class AuthManager(context: Context) {
             }
         }
         store.delete(_state.value.username)
-        prefs.edit().remove(KEY_USERNAME).remove(KEY_ROLE).remove(KEY_NAME).apply()
+        prefs.edit().remove(KEY_USERNAME).remove(KEY_ROLE).remove(KEY_NAME).remove(KEY_CAN).apply()
         viewingCoach.value = null
-        _state.update { it.copy(isAuthenticated = false, username = "", role = null, displayName = "") }
+        _state.update { it.copy(isAuthenticated = false, username = "", role = null, displayName = "", can = StaffCan(), profileError = null) }
     }
 
     private companion object {
@@ -205,6 +243,7 @@ class AuthManager(context: Context) {
         const val KEY_USERNAME = "wp_username"
         const val KEY_ROLE = "staff_role"
         const val KEY_NAME = "staff_name"
+        const val KEY_CAN = "staff_can"
         const val KEY_DEVICE_ID = "staff_device_id"
     }
 }

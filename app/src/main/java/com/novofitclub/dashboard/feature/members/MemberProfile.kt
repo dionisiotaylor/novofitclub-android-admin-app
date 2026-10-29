@@ -65,6 +65,7 @@ internal object MemberDateFormats {
  */
 data class MemberProfile(
     val id: String,
+    /** The cédula (`acf.id`): editable; the server rejects one already used by another member. */
     val memberId: String,
     val name: String,
     val phone: String,
@@ -84,26 +85,34 @@ data class MemberProfile(
 
     /**
      * Body for `PATCH wp/v2/member/{id}`: ACF updates nested under `acf`, plus
-     * the post `title` kept in sync as "Name – member_id" (the server
+     * the post `title` kept in sync as "Name – cédula" (the server
      * regenerates `acf.name` from the title on every save, so writing the
      * name alone never sticks).
+     *
+     * The four membership dates are only sent when [includeLockedDates] —
+     * the user may change them (`can.edit_member_dates`). For anyone else the
+     * server rejects any change to them (403).
      */
-    fun patchBody(): JSONObject {
+    fun patchBody(includeLockedDates: Boolean): JSONObject {
         val trimmedName = name.trim()
+        val cedula = memberId.trim()
         val acf = JSONObject()
             .put("name", trimmedName)
             .put("phone", phone.trim())
             .put("email", email.trim())
+        if (cedula.isNotEmpty()) acf.put("id", cedula)
         birthday?.let { acf.put("birthday", it.format(MemberDateFormats.birthday)) }
         gender?.let { acf.put("gender", it) }
-        membershipExpirationDate?.let { acf.put("membership_expiration_date", it.format(MemberDateFormats.iso)) }
-        paymentDay?.let { acf.put("payment_day", it.format(MemberDateFormats.iso)) }
-        lastPaymentDate?.let { acf.put("fecha_del_ultimo_pago", it.format(MemberDateFormats.iso)) }
-        originalExpirationDate?.let { acf.put("fecha_original_vencimiento", it.format(MemberDateFormats.iso)) }
+        if (includeLockedDates) {
+            membershipExpirationDate?.let { acf.put("membership_expiration_date", it.format(MemberDateFormats.iso)) }
+            paymentDay?.let { acf.put("payment_day", it.format(MemberDateFormats.iso)) }
+            lastPaymentDate?.let { acf.put("fecha_del_ultimo_pago", it.format(MemberDateFormats.iso)) }
+            originalExpirationDate?.let { acf.put("fecha_original_vencimiento", it.format(MemberDateFormats.iso)) }
+        }
         membershipType?.let { acf.put("membership_type", it) }
 
         val body = JSONObject().put("acf", acf)
-        if (memberId.isNotEmpty()) body.put("title", "$trimmedName – $memberId")
+        if (cedula.isNotEmpty()) body.put("title", "$trimmedName – $cedula")
         return body
     }
 

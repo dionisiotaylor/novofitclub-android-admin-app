@@ -1,5 +1,6 @@
 package com.novofitclub.dashboard.feature.members
 
+import com.novofitclub.dashboard.core.net.firstNumber
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,6 +30,7 @@ sealed interface MembersRoute {
     class Edit(val state: MemberEditState, val detail: MemberDetailState) : MembersRoute
     class Sale(val saleId: String, val detail: MemberDetailState) : MembersRoute
     class Create(val state: MemberCreateState) : MembersRoute
+    data object Freezes : MembersRoute
 }
 
 /**
@@ -36,7 +38,11 @@ sealed interface MembersRoute {
  * (first page renders immediately, the rest keep appending so filter counts
  * fill in), while the list itself reveals 20 rows at a time as you scroll.
  */
-class MembersViewModel(private val api: WPApiClient) : ViewModel() {
+class MembersViewModel(
+    private val api: WPApiClient,
+    /** `can.edit_member_dates` of the signed-in user, read when an edit opens. */
+    private val canEditDates: () -> Boolean = { false },
+) : ViewModel() {
     var members by mutableStateOf<List<Member>>(emptyList())
         private set
     var isLoading by mutableStateOf(false)
@@ -130,8 +136,14 @@ class MembersViewModel(private val api: WPApiClient) : ViewModel() {
     val filteredMembers: List<Member>
         get() = members.filter { member ->
             (filter.status == null || member.status == filter.status) &&
-                (query.isEmpty() || member.name.contains(query, ignoreCase = true))
+                (query.isEmpty() || member.name.contains(query, ignoreCase = true) || matchesCedula(member))
         }
+
+    /** The cédula typed in the search, compared as the server's duplicate check does. */
+    private fun matchesCedula(member: Member): Boolean {
+        val key = cedulaKey(query)
+        return key.isNotEmpty() && cedulaKey(member.memberId).contains(key)
+    }
 
     /** Called when a row appears — reveals the next batch once the last shown row is on screen. */
     fun revealMoreIfNeeded(current: Member, displayed: List<Member>, visibleCount: Int) {
@@ -153,11 +165,15 @@ class MembersViewModel(private val api: WPApiClient) : ViewModel() {
     }
 
     fun openEdit(detail: MemberDetailState) {
-        stack.add(MembersRoute.Edit(MemberEditState(detail.member.id, api, viewModelScope), detail))
+        stack.add(MembersRoute.Edit(MemberEditState(detail.member.id, api, viewModelScope, canEditDates()), detail))
     }
 
     fun openSale(saleId: String, detail: MemberDetailState) {
         stack.add(MembersRoute.Sale(saleId, detail))
+    }
+
+    fun openFreezes() {
+        stack.add(MembersRoute.Freezes)
     }
 
     fun openCreate() {
@@ -230,8 +246,25 @@ class MemberDetailState(
 
     private var isFetching = false
 
+    /** Membership dates, programs and history (`novo-staff/v1/members/{id}`). */
+    val overview = MemberOverviewState(member.id, api, scope) { applyOverviewStatus(it) }
+
     init {
         loadSales()
+        overview.load()
+    }
+
+    /** The status as stored (a sale sets it Activo right away), shown with the "por vencer" shade the list uses. */
+    private fun applyOverviewStatus(value: MemberOverview) {
+        val (status, label) = Member.status(value.statusLabel, value.expiration)
+        displayStatus = status
+        displayStatusLabel = label
+    }
+
+    /** Pull to refresh / after a sale changed: deleting one puts the member's dates back. */
+    fun reload() {
+        loadSales()
+        overview.load()
     }
 
     val totalAmount: Double
@@ -301,6 +334,7 @@ class MemberDetailState(
         val (status, label) = Member.status(profile.status?.raw, profile.membershipExpirationDate)
         displayStatus = status
         displayStatusLabel = label
+        overview.load()
         toastJob?.cancel()
         showSavedToast = true
         toastJob = scope.launch {
@@ -317,9 +351,11 @@ class MemberDetailState(
 
 /** Edit form backed by `GET`/`PATCH wp/v2/member/{id}`. */
 class MemberEditState(
-    private val memberId: String,
-    private val api: WPApiClient,
+    val memberId: String,
+    internal val api: WPApiClient,
     private val scope: CoroutineScope,
+    /** Only the users allowed to change the membership dates edit (and send) them. */
+    val canEditDates: Boolean = false,
 ) {
     var isLoading by mutableStateOf(true)
         private set
@@ -332,22 +368,24 @@ class MemberEditState(
     private var loadedProfile: MemberProfile? = null
 
     var name by mutableStateOf("")
+    var cedula by mutableStateOf("")
     var phone by mutableStateOf("")
     var email by mutableStateOf("")
-    var birthday by mutableStateOf(LocalDate.now())
+    /** Null while the member has no birthday and nobody picked one — never saved as today. */
+    var birthday by mutableStateOf<LocalDate?>(null)
     var gender by mutableStateOf("male")
     var status by mutableStateOf(MemberAccountStatus.Active)
         private set
-    var membershipExpirationDate by mutableStateOf(LocalDate.now())
-    var paymentDay by mutableStateOf(LocalDate.now())
-    var lastPaymentDate by mutableStateOf(LocalDate.now())
-    var originalExpirationDate by mutableStateOf(LocalDate.now())
+    var membershipExpirationDate by mutableStateOf<LocalDate?>(null)
+    var paymentDay by mutableStateOf<LocalDate?>(null)
+    var lastPaymentDate by mutableStateOf<LocalDate?>(null)
+    var originalExpirationDate by mutableStateOf<LocalDate?>(null)
     var membershipType by mutableStateOf<String?>(null)
     var membershipTypeLabel by mutableStateOf<String?>(null)
         private set
 
     val canSave: Boolean
-        get() = name.isNotBlank()
+        get() = name.isNotBlank() && cedula.isNotBlank()
 
     init {
         scope.launch {
@@ -355,15 +393,16 @@ class MemberEditState(
                 val profile = MemberProfile.from(memberId, api.getObject("wp/v2/member/$memberId"))
                 loadedProfile = profile
                 name = profile.name
+                cedula = profile.memberId
                 phone = profile.phone
                 email = profile.email
-                birthday = profile.birthday ?: LocalDate.now()
+                birthday = profile.birthday
                 gender = profile.gender ?: "male"
                 status = profile.status ?: MemberAccountStatus.Active
-                membershipExpirationDate = profile.membershipExpirationDate ?: LocalDate.now()
-                paymentDay = profile.paymentDay ?: LocalDate.now()
-                lastPaymentDate = profile.lastPaymentDate ?: LocalDate.now()
-                originalExpirationDate = profile.originalExpirationDate ?: LocalDate.now()
+                membershipExpirationDate = profile.membershipExpirationDate
+                paymentDay = profile.paymentDay
+                lastPaymentDate = profile.lastPaymentDate
+                originalExpirationDate = profile.originalExpirationDate
                 membershipType = profile.membershipType
                 membershipTypeLabel = profile.membershipTypeLabel
             } catch (e: CancellationException) {
@@ -382,6 +421,7 @@ class MemberEditState(
         saveError = null
         val profile = base.copy(
             name = name,
+            memberId = cedula,
             phone = phone,
             email = email,
             birthday = birthday,
@@ -394,7 +434,7 @@ class MemberEditState(
         )
         scope.launch {
             try {
-                api.patchObject("wp/v2/member/$memberId", profile.patchBody())
+                api.patchObject("wp/v2/member/$memberId", profile.patchBody(includeLockedDates = canEditDates))
                 onSaved(profile)
             } catch (e: CancellationException) {
                 throw e
@@ -408,10 +448,14 @@ class MemberEditState(
 
 /** Create form backed by `POST wp/v2/member`. */
 class MemberCreateState(
-    private val api: WPApiClient,
+    internal val api: WPApiClient,
     private val scope: CoroutineScope,
 ) {
     var draft by mutableStateOf(NewMemberDraft())
+
+    /** Set once the member exists — the screen then moves on to the access photo step (it needs the new post id). */
+    var createdMemberId by mutableStateOf<String?>(null)
+        private set
     var isSaving by mutableStateOf(false)
         private set
     var saveError by mutableStateOf<String?>(null)
@@ -423,14 +467,17 @@ class MemberCreateState(
         draft = draft.copy(email = username + domain)
     }
 
-    fun save(onCreated: () -> Unit) {
+    /** [onCreated] runs right after the member exists (to reload the list); [onNoId] when the answer had no id to continue with. */
+    fun save(onCreated: () -> Unit, onNoId: () -> Unit) {
         if (isSaving) return
         isSaving = true
         saveError = null
         scope.launch {
             try {
-                api.postObject("wp/v2/member", draft.createBody())
+                val created = api.postObject("wp/v2/member", draft.createBody())
                 onCreated()
+                val id = created.firstNumber("id")?.toInt()
+                if (id != null) createdMemberId = id.toString() else onNoId()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -444,3 +491,6 @@ class MemberCreateState(
         val emailDomains = listOf("@gmail.com", "@hotmail.com", "@yahoo.com")
     }
 }
+
+/** A cédula as the server's duplicate check compares it: no spaces, dashes or dots, uppercase. */
+internal fun cedulaKey(raw: String): String = raw.filterNot { it == ' ' || it == '-' || it == '.' }.uppercase()

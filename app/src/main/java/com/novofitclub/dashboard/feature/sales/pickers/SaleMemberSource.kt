@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.novofitclub.dashboard.core.net.WPApiClient
 import com.novofitclub.dashboard.core.net.arr
 import com.novofitclub.dashboard.core.net.bool
+import com.novofitclub.dashboard.core.net.firstNumber
 import com.novofitclub.dashboard.core.net.firstString
 import com.novofitclub.dashboard.core.net.objects
 import com.novofitclub.dashboard.core.net.str
@@ -32,6 +33,7 @@ data class PickerMember(
     val initials: String,
     val avatarColor: Color,
     val photoUrl: String?,
+    val age: Int? = null,
 ) {
     companion object {
         fun from(fields: JSONObject, fallbackIndex: Int): PickerMember {
@@ -46,6 +48,7 @@ data class PickerMember(
                 initials = initials(name),
                 avatarColor = NovoColors.avatarPalette[fallbackIndex % NovoColors.avatarPalette.size],
                 photoUrl = fields.firstString("photo_url"),
+                age = fields.firstNumber("age")?.toInt(),
             )
         }
     }
@@ -118,7 +121,14 @@ class SaleMemberSource(private val api: WPApiClient) : ViewModel() {
     }
 
     val filteredMembers: List<PickerMember>
-        get() = if (query.isEmpty()) members else members.filter { it.name.contains(query, ignoreCase = true) }
+        get() {
+            if (query.isEmpty()) return members
+            val digits = query.filter(Char::isLetterOrDigit)
+            return members.filter { member ->
+                member.name.contains(query, ignoreCase = true) ||
+                    (digits.length >= 3 && member.memberId.filter(Char::isLetterOrDigit).contains(digits, ignoreCase = true))
+            }
+        }
 
     val displayedMembers: List<PickerMember>
         get() = filteredMembers.take(revealedCount)

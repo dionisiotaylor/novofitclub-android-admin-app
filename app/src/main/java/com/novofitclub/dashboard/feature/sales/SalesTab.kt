@@ -29,7 +29,7 @@ import com.novofitclub.dashboard.feature.sales.edit.SaleEditScreen
  */
 @Composable
 fun SalesTab(app: NovoFitClubApp) {
-    val vm: SalesViewModel = viewModel(key = "sales-tab") { SalesViewModel(app.api) }
+    val vm: SalesViewModel = viewModel(key = "sales-tab") { SalesViewModel(app.api) { app.auth.state.value.can.editMemberDates } }
     val listState = rememberLazyListState()
     var showingNewSale by rememberSaveable { mutableStateOf(false) }
 
@@ -65,6 +65,7 @@ fun SalesTab(app: NovoFitClubApp) {
                 }
             }
             is SalesRoute.MemberDetail -> MemberDetailScreen(
+                app = app,
                 state = route.state,
                 onBack = vm::pop,
                 onEdit = { vm.openMemberEdit(route.state) },

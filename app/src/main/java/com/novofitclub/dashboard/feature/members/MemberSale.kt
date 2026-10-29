@@ -5,6 +5,7 @@ import com.novofitclub.dashboard.core.net.firstNumber
 import com.novofitclub.dashboard.core.net.firstString
 import com.novofitclub.dashboard.core.net.imageUrl
 import com.novofitclub.dashboard.core.net.obj
+import com.novofitclub.dashboard.core.net.objects
 import com.novofitclub.dashboard.core.util.Formatters
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,6 +25,9 @@ data class MemberSale(
     val amount: Double,
     val imageUrl: String?,
     val dateLabel: String?,
+    val hasAjuste: Boolean = false,
+    /** Paid by canje: ₡0 and blue, as in the sales list. */
+    val isCanje: Boolean = false,
 ) {
     private data class LineItem(val title: String, val price: Double?, val quantity: Int, val imageUrl: String?)
 
@@ -38,15 +42,22 @@ data class MemberSale(
             val productsTotal = products.sumOf { (it.price ?: 0.0) * it.quantity }
             val servicesTotal = services.sumOf { it.price ?: 0.0 }
 
+            val ajustes = fields.arr("ajustes")?.objects().orEmpty()
+            val ajustesTotal = ajustes.sumOf { it.firstNumber("amount") ?: 0.0 }
+            val isCanje = fields.firstString("status") == "trade"
+
             val title = membershipTitle
                 ?: products.firstOrNull()?.title
                 ?: services.firstOrNull()?.title
+                ?: ajustes.firstOrNull()?.firstString("concept")?.let { "Diferencia: $it" }
                 ?: "Venta"
 
             return MemberSale(
                 id = id,
                 productTitle = title,
-                amount = membershipPrice + productsTotal + servicesTotal,
+                amount = if (isCanje) 0.0 else membershipPrice + productsTotal + servicesTotal + ajustesTotal,
+                hasAjuste = ajustes.isNotEmpty(),
+                isCanje = isCanje,
                 imageUrl = products.firstOrNull()?.imageUrl ?: membership?.imageUrl(),
                 dateLabel = Formatters.friendlyDate(fields.firstString("post_date", "date_created")),
             )

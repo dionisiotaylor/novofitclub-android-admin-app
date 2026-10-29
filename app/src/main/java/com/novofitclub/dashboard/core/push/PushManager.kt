@@ -38,7 +38,8 @@ class PushManager(private val context: Context) {
             PackageManager.PERMISSION_GRANTED
 
     /**
-     * "ventas" (cash register, new sales for admins) and "horario" (the alarm:
+     * "ventas" (cash register, new sales for admins), "nuevo_cliente" (the
+     * trumpet: a new member's first monthly plan) and "horario" (the alarm:
      * a coach's reminders before each shift, activity and cita, and changes
      * to their citas). On Android 8+ the sound belongs to the channel and
      * can't be changed once created, so each sound has its own channel.
@@ -50,6 +51,9 @@ class PushManager(private val context: Context) {
         )
         manager.createNotificationChannel(
             channel(SCHEDULE_CHANNEL_ID, "Horario", "Aviso 5 minutos antes de cada turno, actividad y cita, y cuando cambian tus citas", R.raw.alarma),
+        )
+        manager.createNotificationChannel(
+            channel(NEW_MEMBER_CHANNEL_ID, "Cliente nuevo", "Trompeta cuando un cliente nuevo paga su primera mensualidad", R.raw.trompet),
         )
     }
 
@@ -94,6 +98,9 @@ class PushManager(private val context: Context) {
         const val CHANNEL_ID = "ventas"
         /** Must match NOVO_PUSH_SCHEDULE_CHANNEL in novo-push.php. */
         const val SCHEDULE_CHANNEL_ID = "horario"
+        /** Must match NOVO_PUSH_NEW_MEMBER_CHANNEL in novo-push.php. */
+        const val NEW_MEMBER_CHANNEL_ID = "nuevo_cliente"
+        val CHANNEL_IDS = setOf(CHANNEL_ID, SCHEDULE_CHANNEL_ID, NEW_MEMBER_CHANNEL_ID)
         private const val KEY_UPLOADED = "uploaded_token"
     }
 }

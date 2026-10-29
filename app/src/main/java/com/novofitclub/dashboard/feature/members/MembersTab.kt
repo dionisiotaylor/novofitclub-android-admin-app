@@ -1,5 +1,10 @@
 package com.novofitclub.dashboard.feature.members
 
+import com.novofitclub.dashboard.feature.sales.ScopedViewModels
+import com.novofitclub.dashboard.feature.freezes.FreezesScreen
+import com.novofitclub.dashboard.feature.freezes.FreezesEntryPill
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,14 +61,21 @@ import com.novofitclub.dashboard.feature.sales.SaleDetailScreen
 /** Root of the Miembros tab: the member list plus an in-tab back stack. */
 @Composable
 fun MembersTab(app: NovoFitClubApp) {
-    val vm: MembersViewModel = viewModel { MembersViewModel(app.api) }
+    val vm: MembersViewModel = viewModel { MembersViewModel(app.api) { app.auth.state.value.can.editMemberDates } }
 
     BackHandler(enabled = vm.stack.isNotEmpty()) { vm.pop() }
 
     Box(Modifier.fillMaxSize().background(NovoColors.background)) {
         when (val route = vm.stack.lastOrNull()) {
-            null -> MembersListScreen(vm)
+            null -> {
+                val auth by app.auth.state.collectAsState()
+                MembersListScreen(vm) {
+                    if (auth.role == "admin" || auth.can.requestFreezes) FreezesEntryPill(app, onClick = vm::openFreezes)
+                }
+            }
+            MembersRoute.Freezes -> ScopedViewModels { FreezesScreen(app, onBack = vm::pop) }
             is MembersRoute.Detail -> MemberDetailScreen(
+                app = app,
                 state = route.state,
                 onBack = vm::pop,
                 onEdit = { vm.openEdit(route.state) },
@@ -81,17 +93,15 @@ fun MembersTab(app: NovoFitClubApp) {
                 app = app,
                 saleId = route.saleId,
                 onBack = vm::pop,
-                onChanged = { route.detail.loadSales() },
+                // Deleting or editing a sale can move the member's dates.
+                onChanged = { route.detail.reload() },
                 onOpenMember = vm::openMember,
             )
             is MembersRoute.Create -> MemberCreateScreen(
                 state = route.state,
                 vm = vm,
                 onCancel = vm::pop,
-                onCreated = {
-                    vm.popIfTop(route)
-                    vm.load()
-                },
+                onDone = { vm.popIfTop(route) },
             )
         }
     }
@@ -99,7 +109,7 @@ fun MembersTab(app: NovoFitClubApp) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MembersListScreen(vm: MembersViewModel) {
+private fun MembersListScreen(vm: MembersViewModel, headerTrailing: @Composable () -> Unit = {}) {
     val error = vm.errorMessage
     if (error != null && vm.members.isEmpty() && !vm.isLoading) {
         LoadFailedState(error, onRetry = vm::load)
@@ -123,9 +133,12 @@ private fun MembersListScreen(vm: MembersViewModel) {
                     .background(NovoColors.background)
                     .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Miembros", style = NovoFonts.heading(32))
-                    Text(vm.summaryLabel, style = NovoFonts.medium(14).copy(color = NovoColors.textSecondary))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Miembros", style = NovoFonts.heading(32))
+                        Text(vm.summaryLabel, style = NovoFonts.medium(14).copy(color = NovoColors.textSecondary))
+                    }
+                    headerTrailing()
                 }
                 SearchField(vm.query, vm::updateQuery, onSubmit = { focusManager.clearFocus() })
                 FilterChips(vm)
@@ -216,7 +229,7 @@ private fun SearchField(query: String, onChange: (String) -> Unit, onSubmit: () 
         Icon(Icons.Filled.Search, contentDescription = null, tint = NovoColors.textSecondary)
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) {
-                Text("Buscar por nombre", style = NovoFonts.body(16).copy(color = NovoColors.textSecondary))
+                Text("Buscar por nombre o cédula", style = NovoFonts.body(16).copy(color = NovoColors.textSecondary))
             }
             BasicTextField(
                 value = query,

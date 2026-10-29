@@ -42,13 +42,14 @@ class NovoMessagingService : FirebaseMessagingService() {
         // The data's "open" (e.g. "schedule") rides along so a tap opens that screen.
         val launch = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
         message.data["open"]?.let { launch.putExtra("open", it) }
+        message.data["sale_id"]?.let { launch.putExtra("sale_id", it) }
         val open = PendingIntent.getActivity(
             this,
             System.currentTimeMillis().toInt(),
             launch,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val channel = notification.channelId?.takeIf { it == PushManager.SCHEDULE_CHANNEL_ID } ?: PushManager.CHANNEL_ID
+        val channel = notification.channelId?.takeIf { it in PushManager.CHANNEL_IDS } ?: PushManager.CHANNEL_ID
         val built = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_stat_novo)
             .setContentTitle(notification.title)

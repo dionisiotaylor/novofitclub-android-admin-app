@@ -58,7 +58,8 @@ data class DashboardStats(
 
     data class PlanBreakdown(val plan: String, val value: String, val total: Int, val active: Int)
 
-    data class RevenueSplit(val memberships: Double, val products: Double, val services: Double)
+    /** [ajustes]: the month's "Diferencia / Ajuste" lines (themes/.../app/sales/ajustes.php). */
+    data class RevenueSplit(val memberships: Double, val products: Double, val services: Double, val ajustes: Double = 0.0)
 
     data class TopSoldItem(val name: String, val count: Int)
 
@@ -109,6 +110,7 @@ data class DashboardStats(
                     memberships = split.dbl("memberships"),
                     products = split.dbl("products"),
                     services = split.dbl("services"),
+                    ajustes = split.dbl("ajustes"),
                 ),
                 topSoldMemberships = topSoldItems(topSold.arr("memberships")),
                 topSoldProducts = topSoldItems(topSold.arr("products")),
