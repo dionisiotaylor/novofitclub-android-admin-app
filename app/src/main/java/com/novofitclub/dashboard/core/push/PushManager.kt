@@ -37,20 +37,33 @@ class PushManager(private val context: Context) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
 
-    fun createChannel() {
-        val sound = Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${context.packageName}/${R.raw.register_sound}")
-        val channel = NotificationChannel(CHANNEL_ID, "Ventas", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Aviso cada vez que se registra una venta nueva"
+    /**
+     * "ventas" (cash register, new sales for admins) and "horario" (the alarm:
+     * a coach's reminders before each shift, activity and cita, and changes
+     * to their citas). On Android 8+ the sound belongs to the channel and
+     * can't be changed once created, so each sound has its own channel.
+     */
+    fun createChannels() {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            channel(CHANNEL_ID, "Ventas", "Aviso cada vez que se registra una venta nueva", R.raw.register_sound),
+        )
+        manager.createNotificationChannel(
+            channel(SCHEDULE_CHANNEL_ID, "Horario", "Aviso 5 minutos antes de cada turno, actividad y cita, y cuando cambian tus citas", R.raw.alarma),
+        )
+    }
+
+    private fun channel(id: String, name: String, about: String, soundRes: Int) =
+        NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH).apply {
+            description = about
             setSound(
-                sound,
+                Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${context.packageName}/$soundRes"),
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build(),
             )
         }
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-    }
 
     /**
      * Idempotent: safe to call on every launch — only hits the API when the
@@ -79,6 +92,8 @@ class PushManager(private val context: Context) {
 
     companion object {
         const val CHANNEL_ID = "ventas"
+        /** Must match NOVO_PUSH_SCHEDULE_CHANNEL in novo-push.php. */
+        const val SCHEDULE_CHANNEL_ID = "horario"
         private const val KEY_UPLOADED = "uploaded_token"
     }
 }

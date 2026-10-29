@@ -1,6 +1,7 @@
 package com.novofitclub.dashboard
 
 import android.Manifest
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -33,6 +34,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleOpen(intent)
 
         // Re-lock whenever the whole app goes to the background, like the iOS scenePhase handler.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -53,7 +55,11 @@ class MainActivity : FragmentActivity() {
                     LoginScreen(app.auth)
                 } else {
                     // Same moment as the iOS RootView .task: right after sign-in / on launch.
-                    LaunchedEffect(auth.username) { setUpPush() }
+                    LaunchedEffect(auth.username) {
+                        setUpPush()
+                        // Every launch: picks up a role changed in wp-admin.
+                        app.auth.refreshProfile()
+                    }
                     Box {
                         RootScreen(app)
                         if (!unlocked) {
@@ -76,6 +82,16 @@ class MainActivity : FragmentActivity() {
 
     private fun registerPush() {
         lifecycleScope.launch { app.push.registerToken(app.api) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleOpen(intent)
+    }
+
+    /** A tapped push carries `open` (our own notification's extra, or FCM's data when the system shows it). */
+    private fun handleOpen(intent: Intent?) {
+        intent?.getStringExtra("open")?.takeIf { it.isNotEmpty() }?.let { app.pendingOpen.value = it }
     }
 
     override fun onResume() {

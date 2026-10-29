@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,15 +24,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.novofitclub.dashboard.core.net.AuthManager
-import com.novofitclub.dashboard.core.net.DEFAULT_SITE_URL
 import com.novofitclub.dashboard.core.ui.BrandBadge
 import com.novofitclub.dashboard.core.ui.NovoColors
-import com.novofitclub.dashboard.core.ui.NovoDimens
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.PrimaryButton
 import com.novofitclub.dashboard.core.ui.SectionLabel
@@ -44,12 +39,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun LoginScreen(auth: AuthManager) {
     val state by auth.state.collectAsState()
-    var siteUrl by rememberSaveable { mutableStateOf(DEFAULT_SITE_URL) }
     var username by rememberSaveable { mutableStateOf("") }
-    var appPassword by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
-    val canSubmit = username.isNotBlank() && appPassword.isNotBlank() && siteUrl.isNotBlank()
+    val canSubmit = username.isNotBlank() && password.isNotEmpty()
 
     Column(
         verticalArrangement = Arrangement.spacedBy(28.dp),
@@ -68,18 +62,16 @@ fun LoginScreen(auth: AuthManager) {
             modifier = Modifier.fillMaxWidth().padding(top = 32.dp),
         ) {
             BrandBadge(width = 110.dp)
-            Text("Panel de administración", style = NovoFonts.medium(14).copy(color = NovoColors.textSecondary))
+            Text("Novo Staff", style = NovoFonts.medium(14).copy(color = NovoColors.textSecondary))
         }
 
         Column(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxWidth().cardBackground().padding(20.dp),
         ) {
-            SectionLabel("Sitio")
-            ThemedField(siteUrl, { siteUrl = it }, "URL del sitio", keyboardType = KeyboardType.Uri)
-            SectionLabel("Credenciales", Modifier.padding(top = 4.dp))
-            ThemedField(username, { username = it }, "Usuario")
-            ThemedField(appPassword, { appPassword = it }, "Contraseña de aplicación", isSecure = true)
+            SectionLabel("Tu usuario de WordPress")
+            ThemedField(username, { username = it }, "Usuario o correo")
+            ThemedField(password, { password = it }, "Contraseña", isSecure = true)
         }
 
         state.loginError?.let {
@@ -92,24 +84,15 @@ fun LoginScreen(auth: AuthManager) {
             loading = state.isValidating,
             onClick = {
                 focus.clearFocus()
-                scope.launch { auth.login(siteUrl, username, appPassword) }
+                scope.launch { auth.login(username, password) }
             },
         )
 
-        Column(
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(NovoDimens.cornerRadius))
-                .background(NovoColors.panel)
-                .padding(16.dp),
-        ) {
-            Text("¿Dónde consigo una contraseña de aplicación?", style = NovoFonts.semibold(13))
-            Text(
-                "En wp-admin: Usuarios → Tu perfil → Application Passwords. Genera una y cópiala con los espacios incluidos.",
-                style = NovoFonts.body(13).copy(color = NovoColors.textSecondary),
-            )
-        }
+        Text(
+            "Es el mismo usuario y contraseña con el que entras a novofitclub.com/wp-admin.",
+            style = NovoFonts.body(13).copy(color = NovoColors.textSecondary),
+            modifier = Modifier.fillMaxWidth(),
+        )
         Spacer(Modifier.height(8.dp))
     }
 }

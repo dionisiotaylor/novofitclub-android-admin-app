@@ -1,17 +1,24 @@
 package com.novofitclub.dashboard.core.net
 
 import android.content.Context
+import android.os.Build
 import android.util.Base64
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.util.UUID
 
 data class WPCredentials(
     val baseUrl: String,
@@ -31,28 +38,47 @@ data class AuthState(
     val username: String = "",
     val loginError: String? = null,
     val isValidating: Boolean = false,
+    /** Staff role from `novo-staff/v1/me`: "admin", "receptionist", "coach" or "other"; cached across launches. */
+    val role: String? = null,
+    val displayName: String = "",
 )
+
+/** A coach an admin is looking at the app as ("Ver como entrenador"): their gym-scheduler employee. */
+data class ViewedCoach(val id: Int, val name: String, val color: String?) {
+    val firstName: String get() = name.substringBefore(' ')
+}
 
 const val DEFAULT_SITE_URL = "https://novofitclub.com"
 
 /**
- * Owns the signed-in state for the app. Credentials are the user's WordPress
- * username + an Application Password (Usuarios > Perfil > Application
- * Passwords) — never their main account password.
+ * Owns the signed-in state for the app. The user signs in with their normal
+ * WordPress username and password; `novo-staff/v1/login` trades them for an
+ * Application Password for this phone, which is all the app keeps. The real
+ * password is never stored.
  */
 class AuthManager(context: Context) {
     private val prefs = context.getSharedPreferences("novo_auth", Context.MODE_PRIVATE)
     private val store = CredentialStore(context)
     private val http = OkHttpClient()
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _state = MutableStateFlow(AuthState())
     val state: StateFlow<AuthState> = _state.asStateFlow()
+
+    /** Admins only, not saved: the coach whose app they're looking at. */
+    val viewingCoach = MutableStateFlow<ViewedCoach?>(null)
 
     init {
         val savedUrl = prefs.getString(KEY_URL, null) ?: DEFAULT_SITE_URL
         val savedUser = prefs.getString(KEY_USERNAME, null)
         _state.value = if (savedUser != null && store.read(savedUser) != null) {
-            AuthState(isAuthenticated = true, siteUrl = savedUrl, username = savedUser)
+            AuthState(
+                isAuthenticated = true,
+                siteUrl = savedUrl,
+                username = savedUser,
+                role = prefs.getString(KEY_ROLE, null),
+                displayName = prefs.getString(KEY_NAME, null).orEmpty(),
+            )
         } else {
             AuthState(siteUrl = savedUrl)
         }
@@ -66,75 +92,119 @@ class AuthManager(context: Context) {
             return WPCredentials(s.siteUrl, s.username, password)
         }
 
-    /**
-     * Validates credentials against WordPress core's own "me" endpoint before
-     * trusting them, so a typo surfaces immediately instead of failing later
-     * on some deep, plugin-specific screen.
-     */
-    suspend fun login(rawUrl: String, username: String, appPassword: String) {
-        _state.update { it.copy(loginError = null, isValidating = true) }
-
-        var normalized = rawUrl.trim()
-        if (!normalized.lowercase().startsWith("http")) normalized = "https://$normalized"
-        normalized = normalized.trimEnd('/')
-
-        val credentials = WPCredentials(normalized, username.trim(), appPassword)
-        val request = try {
-            Request.Builder()
-                .url("$normalized/wp-json/wp/v2/users/me")
-                .header("Authorization", credentials.basicAuthHeader)
-                .header("Accept", "application/json")
-                .build()
-        } catch (e: IllegalArgumentException) {
-            _state.update { it.copy(isValidating = false, loginError = "La URL del sitio no es válida.") }
-            return
+    /** Identifies this install, so signing in again replaces this phone's Application Password. */
+    private val deviceId: String
+        get() = prefs.getString(KEY_DEVICE_ID, null) ?: UUID.randomUUID().toString().also {
+            prefs.edit().putString(KEY_DEVICE_ID, it).apply()
         }
 
-        val error: String? = withContext(Dispatchers.IO) {
+    /**
+     * Signs in with the normal WordPress username (or email) and password.
+     * The server checks them like wp-login.php and answers with a new
+     * Application Password named after this phone.
+     */
+    suspend fun login(rawUsername: String, password: String) {
+        _state.update { it.copy(loginError = null, isValidating = true) }
+        val body = JSONObject()
+            .put("username", rawUsername.trim())
+            .put("password", password)
+            .put("device", Build.MODEL ?: "Android")
+            .put("device_id", deviceId)
+        val request = Request.Builder()
+            .url("$DEFAULT_SITE_URL/wp-json/novo-staff/v1/login")
+            .header("Accept", "application/json")
+            .post(body.toString().toRequestBody(JSON))
+            .build()
+
+        val result: Pair<JSONObject?, String?> = withContext(Dispatchers.IO) {
             try {
                 http.newCall(request).execute().use { response ->
+                    val json = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
                     when (response.code) {
-                        in 200..299 -> null
-                        401, 403 -> "Usuario o contraseña de aplicación incorrectos."
-                        else -> {
-                            val body = response.body?.string().orEmpty()
-                            runCatching { JSONObject(body).optString("message") }.getOrNull()
-                                ?.takeIf { it.isNotBlank() }
-                                ?: "Error del servidor (${response.code})."
-                        }
+                        in 200..299 -> json to null
+                        404 -> null to "El sitio todavía no permite iniciar sesión con la contraseña de WordPress."
+                        else -> null to (json?.str("message") ?: "Error del servidor (${response.code}).")
                     }
                 }
             } catch (e: IOException) {
-                e.localizedMessage ?: "No se pudo contactar al servidor."
+                null to (e.localizedMessage ?: "No se pudo contactar al servidor.")
             }
         }
 
-        if (error != null) {
-            _state.update { it.copy(isValidating = false, loginError = error) }
+        val login = result.first?.str("username")
+        val appPassword = result.first?.str("password")
+        if (login == null || appPassword == null) {
+            _state.update { it.copy(isValidating = false, loginError = result.second ?: "No se pudo leer la respuesta del servidor.") }
             return
         }
-
-        store.save(credentials.username, appPassword)
-        prefs.edit()
-            .putString(KEY_URL, normalized)
-            .putString(KEY_USERNAME, credentials.username)
-            .apply()
-        _state.value = AuthState(
-            isAuthenticated = true,
-            siteUrl = normalized,
-            username = credentials.username,
-        )
+        store.save(login, appPassword)
+        prefs.edit().putString(KEY_URL, DEFAULT_SITE_URL).putString(KEY_USERNAME, login).apply()
+        _state.value = AuthState(isAuthenticated = true, siteUrl = DEFAULT_SITE_URL, username = login)
+        refreshProfile()
     }
 
-    fun logout() {
-        val user = _state.value.username
-        store.delete(user)
-        prefs.edit().remove(KEY_USERNAME).apply()
-        _state.update { it.copy(isAuthenticated = false, username = "") }
+    /**
+     * Fetches `novo-staff/v1/me`: who is signed in and their role, which
+     * decides the tabs. Called after login and on every launch, so a role
+     * changed in wp-admin reaches the app without signing out.
+     */
+    suspend fun refreshProfile() {
+        val credentials = currentCredentials ?: return
+        val request = Request.Builder()
+            .url("${credentials.baseUrl}/wp-json/novo-staff/v1/me")
+            .header("Authorization", credentials.basicAuthHeader)
+            .header("Accept", "application/json")
+            .build()
+        val outcome: Any? = withContext(Dispatchers.IO) {
+            try {
+                http.newCall(request).execute().use { response ->
+                    when (response.code) {
+                        in 200..299 -> runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+                        401 -> 401
+                        else -> null
+                    }
+                }
+            } catch (e: IOException) {
+                null
+            }
+        }
+        when (outcome) {
+            // Application Password revoked in wp-admin: same as signing out.
+            401 -> logout(revoke = false)
+            is JSONObject -> {
+                val role = outcome.str("role") ?: "other"
+                val name = outcome.str("name").orEmpty()
+                prefs.edit().putString(KEY_ROLE, role).putString(KEY_NAME, name).apply()
+                _state.update { it.copy(role = role, displayName = name) }
+            }
+        }
+    }
+
+    /** [revoke] also deletes this phone's Application Password on the server. */
+    fun logout(revoke: Boolean = true) {
+        val credentials = currentCredentials
+        if (revoke && credentials != null) {
+            background.launch {
+                val request = Request.Builder()
+                    .url("${credentials.baseUrl}/wp-json/novo-staff/v1/session")
+                    .header("Authorization", credentials.basicAuthHeader)
+                    .delete()
+                    .build()
+                runCatching { http.newCall(request).execute().close() }
+            }
+        }
+        store.delete(_state.value.username)
+        prefs.edit().remove(KEY_USERNAME).remove(KEY_ROLE).remove(KEY_NAME).apply()
+        viewingCoach.value = null
+        _state.update { it.copy(isAuthenticated = false, username = "", role = null, displayName = "") }
     }
 
     private companion object {
+        val JSON = "application/json".toMediaType()
         const val KEY_URL = "wp_site_url"
         const val KEY_USERNAME = "wp_username"
+        const val KEY_ROLE = "staff_role"
+        const val KEY_NAME = "staff_name"
+        const val KEY_DEVICE_ID = "staff_device_id"
     }
 }
