@@ -217,14 +217,15 @@ data class EvaluationSummary(
     val trainingLabel: String?,
 ) {
     companion object {
-        private val NONE = setOf("", "no", "ninguna", "ninguno", "n/a", "na", "-")
+        /** Fillers the web form gets instead of leaving a field empty: "NO PRESENTA", "No indica", "Sin comentarios". */
+        private val FILLER = Regex("""^(n/?a|-+|\.+|no|ninguna|ninguno|niega|nada|sin comentarios?|no (presenta|indica|refiere|aplica|tiene|registra|hay|hay comentarios))\.?$""")
 
         fun from(json: JSONObject?): EvaluationSummary? {
             json ?: return null
             fun text(key: String) = json.str(key).orEmpty().trim()
             fun strings(key: String) = json.arr(key)?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).ifEmpty { null } } }.orEmpty()
             val restrictions = buildList {
-                val meaningful = { v: String -> v.lowercase() !in NONE }
+                val meaningful = { v: String -> v.isNotBlank() && !FILLER.matches(v.trim().lowercase()) }
                 text("injuries").takeIf(meaningful)?.let { add(it) }
                 text("cardiac").takeIf(meaningful)?.let { add("Condición cardíaca: $it") }
                 text("surgeries").takeIf(meaningful)?.let { add("Cirugías: $it") }
