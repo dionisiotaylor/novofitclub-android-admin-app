@@ -25,14 +25,19 @@ data class MembershipTypeOption(val id: String, val label: String) {
     companion object {
         val all = listOf(
             MembershipTypeOption("ebb48c_regular", "Regular"),
-            MembershipTypeOption("3cd4b8_sesion_dia_gym", "Sesión Día Gym"),
-            MembershipTypeOption("b7a31d_sesion_prueba", "Sesión Prueba"),
-            MembershipTypeOption("ce3258_clase_novo_dance_baile", "Clase Novo Dance Baile"),
-            MembershipTypeOption("e46a1d_clase_funcional", "Clase Funcional"),
+            MembershipTypeOption("2b2d42_elite", "Elite"),
+            MembershipTypeOption("e46a1d_ofertas_promos", "Ofertas y Promos"),
+            MembershipTypeOption("2f9e44_convenios", "Convenios"),
+            MembershipTypeOption("5c6470_empresarial", "Empresarial"),
             MembershipTypeOption("8a09a6_adulto_mayor", "Adulto mayor"),
             MembershipTypeOption("1245a2_menor_de_edad", "Menor de edad"),
             MembershipTypeOption("c472fd_policia", "Policia"),
             MembershipTypeOption("1eb9e0_pole_dance", "Pole Dance"),
+            MembershipTypeOption("0e7c86_pole_con_gym", "Pole con Gym"),
+            MembershipTypeOption("f06fb0_sesion_pole", "Sesión Pole"),
+            MembershipTypeOption("ce3258_clases_solas", "Clases Solas"),
+            MembershipTypeOption("3cd4b8_sesion_dia_gym", "Sesión Día Gym"),
+            MembershipTypeOption("b7a31d_sesion_prueba", "Sesión Prueba"),
         )
     }
 }
