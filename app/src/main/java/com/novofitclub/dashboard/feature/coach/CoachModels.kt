@@ -162,7 +162,7 @@ data class CoachProgram(
     }
 }
 
-/** One of my bookings from `novo-staff/v1/coach/today`, with the client's note and WhatsApp. */
+/** One of my bookings from `novo-staff/v1/coach/today`, with the client's note. Reception contacts the client, not the coach. */
 data class CoachCita(
     val id: Int,
     val startMinute: Int,
@@ -170,7 +170,6 @@ data class CoachCita(
     val service: String,
     val status: String,
     val client: String,
-    val phone: String,
     val notes: String,
     val member: CoachMemberRef?,
 ) {
@@ -183,14 +182,6 @@ data class CoachCita(
         }
     val durationLabel: String get() = "${endMinute - startMinute} min"
 
-    /** Costa Rican numbers are saved without the country code. */
-    val whatsAppUrl: String?
-        get() {
-            val digits = phone.filter { it.isDigit() }
-            if (digits.length < 8) return null
-            return "https://wa.me/" + if (digits.length == 8) "506$digits" else digits
-        }
-
     companion object {
         fun from(json: JSONObject): CoachCita? {
             val id = json.num("id")?.toInt() ?: return null
@@ -201,7 +192,6 @@ data class CoachCita(
                 service = json.str("service") ?: "Cita",
                 status = json.str("status").orEmpty(),
                 client = json.str("client").orEmpty(),
-                phone = json.str("phone").orEmpty(),
                 notes = json.str("notes").orEmpty(),
                 member = CoachMemberRef.from(json.obj("member")),
             )

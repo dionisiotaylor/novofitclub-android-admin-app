@@ -1,9 +1,6 @@
 package com.novofitclub.dashboard.feature.coach
 
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -35,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -172,7 +167,6 @@ fun ProgramOpenerDialogs(opener: ProgramOpener) {
 fun CoachTodayScreen(app: NovoFitClubApp, viewing: ViewedCoach?, showEvaluations: () -> Unit, showPrograms: () -> Unit) {
     val vm: CoachTodayViewModel = viewModel(key = "coach-today-${viewing?.id}") { CoachTodayViewModel(app.api, viewing?.id) }
     val auth by app.auth.state.collectAsState()
-    val context = LocalContext.current
 
     vm.opener.openProgramId?.let { id ->
         BackHandler { vm.opener.openProgramId = null }
@@ -216,9 +210,7 @@ fun CoachTodayScreen(app: NovoFitClubApp, viewing: ViewedCoach?, showEvaluations
 
             val cita = vm.nextCita(CoachDates.nowMinute())
             if (cita != null) {
-                NextCitaCard(cita, vm.citas.count { it.startMinute > cita.startMinute && it.status != "completed" }) { url ->
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                }
+                NextCitaCard(cita, vm.citas.count { it.startMinute > cita.startMinute && it.status != "completed" })
             } else if (!vm.isLoading) {
                 Text(
                     if (vm.isLinked) "No tenés más citas hoy." else "Tu usuario no está vinculado a un empleado del horario: pedile a administración que lo vincule para ver tus citas.",
@@ -258,7 +250,7 @@ private fun StatTile(value: Int, label: String, color: Color, modifier: Modifier
 }
 
 @Composable
-private fun NextCitaCard(cita: CoachCita, later: Int, openUrl: (String) -> Unit) {
+private fun NextCitaCard(cita: CoachCita, later: Int) {
     val isNow = cita.startMinute <= CoachDates.nowMinute()
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -286,14 +278,6 @@ private fun NextCitaCard(cita: CoachCita, later: Int, openUrl: (String) -> Unit)
                 style = NovoFonts.body(13),
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.18f)).padding(horizontal = 12.dp, vertical = 10.dp),
             )
-        }
-        cita.whatsAppUrl?.let { url ->
-            OutlinedButton(
-                onClick = { openUrl(url) },
-                shape = CircleShape,
-                border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.7f)),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
-            ) { Text("WhatsApp", style = NovoFonts.semibold(14)) }
         }
         if (later > 0) Text(if (later == 1) "1 cita más hoy" else "$later citas más hoy", style = NovoFonts.medium(12))
     }
