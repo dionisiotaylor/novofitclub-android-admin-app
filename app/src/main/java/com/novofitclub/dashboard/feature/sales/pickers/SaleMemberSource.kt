@@ -1,29 +1,30 @@
 package com.novofitclub.dashboard.feature.sales.pickers
 
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novofitclub.dashboard.core.net.WPApiClient
-import com.novofitclub.dashboard.core.net.arr
-import com.novofitclub.dashboard.core.net.bool
 import com.novofitclub.dashboard.core.net.firstNumber
 import com.novofitclub.dashboard.core.net.firstString
-import com.novofitclub.dashboard.core.net.objects
 import com.novofitclub.dashboard.core.net.str
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.initials
 import com.novofitclub.dashboard.core.ui.splitEmbeddedId
+import com.novofitclub.dashboard.feature.members.MemberIndex
+import com.novofitclub.dashboard.feature.members.foldForSearch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
  * The subset of the Members tab's `Member` the sale member picker needs,
- * parsed from `sale-creator/v1/members`: `id` (member post id), `member_id`
+ * parsed from `novo-staff/v1/members/index` (same keys as sale-creator/v1/members): `id` (member post id), `member_id`
  * (cédula), `name` ("Real Name – member_id") and `photo_url`.
  */
 data class PickerMember(
@@ -35,6 +36,9 @@ data class PickerMember(
     val photoUrl: String?,
     val age: Int? = null,
 ) {
+    val searchName: String = foldForSearch(name)
+    val cedulaDigits: String = memberId.filter(Char::isLetterOrDigit).uppercase()
+
     companion object {
         fun from(fields: JSONObject, fallbackIndex: Int): PickerMember {
             val id = fields.str("id") ?: "row-$fallbackIndex"
@@ -55,16 +59,14 @@ data class PickerMember(
 }
 
 /**
- * Port of the parts of iOS `MembersViewModel` the member picker uses: the
- * eager, progressively-paged member catalog plus client-side search, shown
- * 20 at a time as the user scrolls.
+ * The member picker's catalog: every member from the shared [MemberIndex]
+ * (one call, kept on the phone), searched on the phone by name — without
+ * case or accents — or cédula.
  */
 class SaleMemberSource(private val api: WPApiClient) : ViewModel() {
     var members by mutableStateOf<List<PickerMember>>(emptyList())
         private set
     var isLoading by mutableStateOf(false)
-        private set
-    var isLoadingMore by mutableStateOf(false)
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
@@ -72,77 +74,46 @@ class SaleMemberSource(private val api: WPApiClient) : ViewModel() {
     var query by mutableStateOf("")
         private set
 
-    private var revealedCount by mutableIntStateOf(REVEAL_BATCH)
-    private var started = false
+    /** The matches for [query], recomputed only when it or the list changes. */
+    var filteredMembers by mutableStateOf<List<PickerMember>>(emptyList())
+        private set
+
+    private var loadJob: Job? = null
 
     fun updateQuery(value: String) {
         query = value
-        revealedCount = REVEAL_BATCH
+        filteredMembers = filter(members, value)
     }
 
-    /**
-     * First page renders immediately; remaining pages keep loading in the
-     * background and append as they arrive.
-     */
+    /** The cached list right away, then a fresh one (reused if Miembros just loaded it). */
     fun load() {
-        if (started) return
-        started = true
-        viewModelScope.launch {
-            isLoading = true
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             errorMessage = null
-            members = emptyList()
-            var page = 1
-            while (page <= MAX_PAGES) {
-                try {
-                    val response = api.getObject(
-                        "sale-creator/v1/members",
-                        mapOf("per_page" to PER_PAGE.toString(), "page" to page.toString()),
-                    )
-                    val items = response.arr("items")?.objects() ?: emptyList()
-                    if (items.isEmpty()) break
-                    val start = members.size
-                    members = members + items.mapIndexed { offset, fields -> PickerMember.from(fields, start + offset) }
-                    if (page == 1) {
-                        isLoading = false
-                        isLoadingMore = true
-                    }
-                    if (response.bool("has_more") != true) break
-                    page += 1
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    if (page == 1) errorMessage = e.message
-                    break
-                }
+            if (members.isEmpty()) MemberIndex.cached()?.let { show(it) }
+            isLoading = members.isEmpty()
+            try {
+                show(MemberIndex.fetch(api))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (members.isEmpty()) errorMessage = e.message
             }
             isLoading = false
-            isLoadingMore = false
         }
     }
 
-    val filteredMembers: List<PickerMember>
-        get() {
-            if (query.isEmpty()) return members
-            val digits = query.filter(Char::isLetterOrDigit)
-            return members.filter { member ->
-                member.name.contains(query, ignoreCase = true) ||
-                    (digits.length >= 3 && member.memberId.filter(Char::isLetterOrDigit).contains(digits, ignoreCase = true))
-            }
-        }
-
-    val displayedMembers: List<PickerMember>
-        get() = filteredMembers.take(revealedCount)
-
-    /** Reveals the next batch once the last currently-shown row is composed. */
-    fun revealMoreIfNeeded(current: PickerMember) {
-        val visible = filteredMembers
-        if (current.id != displayedMembers.lastOrNull()?.id || revealedCount >= visible.size) return
-        revealedCount = minOf(revealedCount + REVEAL_BATCH, visible.size)
+    private suspend fun show(items: List<JSONObject>) {
+        members = withContext(Dispatchers.Default) { items.mapIndexed { index, fields -> PickerMember.from(fields, index) } }
+        filteredMembers = filter(members, query)
     }
 
-    private companion object {
-        const val REVEAL_BATCH = 20
-        const val PER_PAGE = 100
-        const val MAX_PAGES = 200
+    private fun filter(list: List<PickerMember>, query: String): List<PickerMember> {
+        if (query.isBlank()) return list
+        val name = foldForSearch(query.trim())
+        val digits = query.filter(Char::isLetterOrDigit).uppercase()
+        return list.filter { member ->
+            member.searchName.contains(name) || (digits.length >= 3 && member.cedulaDigits.contains(digits))
+        }
     }
 }

@@ -181,7 +181,7 @@ fun MemberCreateScreen(
         onCancel = onCancel,
         saveEnabled = !state.isSaving && draft.canSave && duplicateCedula == null,
         isSaving = state.isSaving,
-        onSave = { state.save(onCreated = vm::load, onNoId = onDone) },
+        onSave = { state.save(onCreated = { vm.load() }, onNoId = onDone) },
     ) {
         FormColumn {
             FormCard {

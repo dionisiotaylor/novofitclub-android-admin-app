@@ -14,6 +14,8 @@ import com.novofitclub.dashboard.core.net.bool
 import com.novofitclub.dashboard.core.net.firstString
 import com.novofitclub.dashboard.core.net.objects
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,9 +36,9 @@ sealed interface MembersRoute {
 }
 
 /**
- * Miembros list: loads every page of `sale-creator/v1/members` progressively
- * (first page renders immediately, the rest keep appending so filter counts
- * fill in), while the list itself reveals 20 rows at a time as you scroll.
+ * Miembros list: every member from `novo-staff/v1/members/index` in one call
+ * ([MemberIndex]), shown at once from the copy kept on the phone while a fresh
+ * one loads. Search and filters run on the phone over the whole club.
  */
 class MembersViewModel(
     private val api: WPApiClient,
@@ -47,8 +49,6 @@ class MembersViewModel(
         private set
     var isLoading by mutableStateOf(false)
         private set
-    var isLoadingMore by mutableStateOf(false)
-        private set
     var isRefreshing by mutableStateOf(false)
         private set
     var errorMessage by mutableStateOf<String?>(null)
@@ -57,8 +57,6 @@ class MembersViewModel(
     var query by mutableStateOf("")
         private set
     var filter by mutableStateOf(MembersFilter.All)
-        private set
-    var revealedCount by mutableIntStateOf(REVEAL_BATCH_SIZE)
         private set
 
     val stack = mutableStateListOf<MembersRoute>()
@@ -69,17 +67,15 @@ class MembersViewModel(
     private var loadJob: Job? = null
 
     init {
-        load()
+        load(force = false)
     }
 
     fun updateQuery(value: String) {
         query = value
-        revealedCount = REVEAL_BATCH_SIZE
     }
 
     fun selectFilter(value: MembersFilter) {
         filter = value
-        revealedCount = REVEAL_BATCH_SIZE
     }
 
     fun refresh() {
@@ -87,69 +83,48 @@ class MembersViewModel(
         load()
     }
 
-    /** `{"items": [...], "has_more": bool}` with real page/per_page pagination. */
-    fun load() {
+    /** The cached list first (instant), then the server's. A failure keeps what's shown. */
+    fun load(force: Boolean = true) {
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
-            isLoading = true
             errorMessage = null
-            members = emptyList()
-
-            var page = 1
-            while (page <= MAX_PAGES) {
-                try {
-                    val response = api.getObject(
-                        "sale-creator/v1/members",
-                        mapOf("per_page" to PER_PAGE.toString(), "page" to page.toString()),
-                    )
-                    val items = response.optJSONArray("items")?.objects().orEmpty()
-                    if (items.isEmpty()) break
-
-                    val start = members.size
-                    members = members + items.mapIndexed { offset, fields -> Member.from(fields, start + offset) }
-
-                    if (page == 1) {
-                        isLoading = false
-                        isRefreshing = false
-                        isLoadingMore = true
-                    }
-                    if (response.bool("has_more") != true) break
-                    page += 1
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    if (page == 1) errorMessage = e.userMessage()
-                    break
-                }
+            if (members.isEmpty()) MemberIndex.cached()?.let { members = parse(it) }
+            isLoading = members.isEmpty()
+            try {
+                members = parse(MemberIndex.fetch(api, force))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (members.isEmpty()) errorMessage = e.userMessage()
             }
             isLoading = false
             isRefreshing = false
-            isLoadingMore = false
         }
     }
+
+    private suspend fun parse(items: List<org.json.JSONObject>): List<Member> =
+        withContext(Dispatchers.Default) { items.mapIndexed { index, fields -> Member.from(fields, index) } }
 
     fun count(filter: MembersFilter): Int {
         val status = filter.status ?: return members.size
         return members.count { it.status == status }
     }
 
+    /** Name without case or accents, cédula ignoring dashes and spaces, or phone digits. */
     val filteredMembers: List<Member>
-        get() = members.filter { member ->
-            (filter.status == null || member.status == filter.status) &&
-                (query.isEmpty() || member.name.contains(query, ignoreCase = true) || matchesCedula(member))
+        get() {
+            val name = foldForSearch(query.trim())
+            val digits = query.filter(Char::isLetterOrDigit).uppercase()
+            val number = query.filter(Char::isDigit)
+            return members.filter { member ->
+                (filter.status == null || member.status == filter.status) &&
+                    (
+                        name.isEmpty() || member.searchName.contains(name) ||
+                            (digits.length >= 3 && member.cedulaDigits.contains(digits)) ||
+                            (number.length >= 4 && member.phoneDigits.contains(number))
+                        )
+            }
         }
-
-    /** The cédula typed in the search, compared as the server's duplicate check does. */
-    private fun matchesCedula(member: Member): Boolean {
-        val key = cedulaKey(query)
-        return key.isNotEmpty() && cedulaKey(member.memberId).contains(key)
-    }
-
-    /** Called when a row appears — reveals the next batch once the last shown row is on screen. */
-    fun revealMoreIfNeeded(current: Member, displayed: List<Member>, visibleCount: Int) {
-        if (current.id != displayed.lastOrNull()?.id || revealedCount >= visibleCount) return
-        revealedCount = minOf(revealedCount + REVEAL_BATCH_SIZE, visibleCount)
-    }
 
     val summaryLabel: String
         get() {
@@ -189,7 +164,7 @@ class MembersViewModel(
         if (stack.lastOrNull() === route) pop()
     }
 
-    /** Best-effort duplicate checks against whatever has loaded so far. */
+    /** Best-effort duplicate checks against the loaded list (the members index carries no emails). */
     fun memberWithCedula(cedula: String): Member? {
         val trimmed = cedula.trim()
         if (trimmed.isEmpty()) return null
@@ -200,12 +175,6 @@ class MembersViewModel(
         val trimmed = email.trim().lowercase()
         if (trimmed.isEmpty()) return null
         return members.firstOrNull { it.email?.lowercase() == trimmed }
-    }
-
-    companion object {
-        const val REVEAL_BATCH_SIZE = 20
-        private const val PER_PAGE = 100
-        private const val MAX_PAGES = 200
     }
 }
 

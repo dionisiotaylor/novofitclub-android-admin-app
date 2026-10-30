@@ -135,8 +135,8 @@ private fun TopBar(vm: SalesViewModel, onOpenDashboard: () -> Unit) {
         }
         SearchField(
             value = vm.searchText,
-            onValueChange = { vm.searchText = it },
-            placeholder = "Nombre o producto",
+            onValueChange = vm::updateSearch,
+            placeholder = "Buscar por nombre, cédula o recibo",
             showsClear = true,
         )
         FilterChips(vm)
@@ -327,7 +327,7 @@ private fun SaleList(vm: SalesViewModel, listState: LazyListState, onOpenSale: (
                     CircularProgressIndicator(color = NovoColors.accent)
                 }
             }
-            rows.isEmpty() -> item(key = "empty") { EmptySales(hasRows = vm.rows.isNotEmpty()) }
+            rows.isEmpty() -> item(key = "empty") { EmptySales(hasRows = vm.isSearching) }
             else -> {
                 items(rows, key = { it.id }) { row ->
                     SaleRow(row, onClick = {

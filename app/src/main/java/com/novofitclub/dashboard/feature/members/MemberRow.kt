@@ -15,14 +15,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,21 +26,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.novofitclub.dashboard.core.ui.MemberAvatar
 import com.novofitclub.dashboard.core.ui.NovoColors
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.cardBackground
+import com.novofitclub.dashboard.feature.coach.CoachChip
+import androidx.compose.ui.graphics.Color
 
-/** Card row for the Miembros list: avatar + status dot, name/phone, colored status label. */
+/** Card row for the Miembros list, like the coach lists: avatar + status dot, name, plan · cédula, a status capsule. */
 @Composable
 fun MemberRow(member: Member, modifier: Modifier = Modifier) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = modifier.fillMaxWidth().cardBackground().padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = modifier.fillMaxWidth().cardBackground().padding(horizontal = 14.dp, vertical = 11.dp),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
             MemberAvatar(member.initials, member.avatarColor, member.photoUrl, 44.dp)
@@ -58,28 +55,19 @@ fun MemberRow(member: Member, modifier: Modifier = Modifier) {
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(member.name, style = NovoFonts.semibold(16), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val subtitle = member.phone.orEmpty()
+            val subtitle = listOfNotNull(member.plan, member.memberId.takeIf { it.isNotBlank() && it != member.id })
+                .joinToString(" · ")
+                .ifEmpty { member.phone.orEmpty() }
             if (subtitle.isNotEmpty()) {
                 Text(
                     subtitle,
-                    style = NovoFonts.body(13).copy(color = NovoColors.textSecondary),
+                    style = NovoFonts.body(13).copy(color = Color(0xFF9A9A9E)),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Text(
-            member.statusLabel,
-            style = NovoFonts.semibold(12).copy(color = member.status.color),
-            textAlign = TextAlign.End,
-            modifier = Modifier.widthIn(max = 92.dp),
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = NovoColors.textSecondary.copy(alpha = 0.6f),
-            modifier = Modifier.size(18.dp),
-        )
+        CoachChip(member.chipLabel, member.status.color)
     }
 }
 

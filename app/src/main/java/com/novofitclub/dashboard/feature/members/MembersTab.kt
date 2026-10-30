@@ -3,11 +3,13 @@ package com.novofitclub.dashboard.feature.members
 import com.novofitclub.dashboard.feature.sales.ScopedViewModels
 import com.novofitclub.dashboard.feature.freezes.FreezesScreen
 import com.novofitclub.dashboard.feature.freezes.FreezesEntryPill
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,24 +18,16 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PersonSearch
 import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -45,9 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -57,6 +49,7 @@ import com.novofitclub.dashboard.core.ui.NovoDimens
 import com.novofitclub.dashboard.core.ui.NovoFonts
 import com.novofitclub.dashboard.core.ui.SecondaryButton
 import com.novofitclub.dashboard.feature.sales.SaleDetailScreen
+import com.novofitclub.dashboard.feature.sales.SearchField
 
 /** Root of the Miembros tab: the member list plus an in-tab back stack. */
 @Composable
@@ -112,7 +105,7 @@ fun MembersTab(app: NovoFitClubApp) {
 private fun MembersListScreen(vm: MembersViewModel, headerTrailing: @Composable () -> Unit = {}) {
     val error = vm.errorMessage
     if (error != null && vm.members.isEmpty() && !vm.isLoading) {
-        LoadFailedState(error, onRetry = vm::load)
+        LoadFailedState(error, onRetry = { vm.load() })
         return
     }
 
@@ -122,76 +115,48 @@ private fun MembersListScreen(vm: MembersViewModel, headerTrailing: @Composable 
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) focusManager.clearFocus()
     }
+    // ~3700 members: filter and count only when the list, the search or the chip changes.
+    val filtered = remember(vm.members, vm.query, vm.filter) { vm.filteredMembers }
+    val counts = remember(vm.members) { MembersFilter.entries.associateWith { vm.count(it) } }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            // Title, search and chips stay put; only the rows scroll.
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(NovoColors.background)
-                    .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp),
+        PullToRefreshBox(isRefreshing = vm.isRefreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 96.dp),
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Miembros", style = NovoFonts.heading(32))
-                        Text(vm.summaryLabel, style = NovoFonts.medium(14).copy(color = NovoColors.textSecondary))
-                    }
-                    headerTrailing()
-                }
-                SearchField(vm.query, vm::updateQuery, onSubmit = { focusManager.clearFocus() })
-                FilterChips(vm)
-            }
-
-            PullToRefreshBox(
-                isRefreshing = vm.isRefreshing,
-                onRefresh = vm::refresh,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            ) {
-                val filtered = vm.filteredMembers
-                val displayed = filtered.take(vm.revealedCount)
-                LazyColumn(
-                    state = listState,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    when {
-                        vm.isLoading && vm.members.isEmpty() -> items(8) { MemberRowSkeleton() }
-                        filtered.isEmpty() -> item { MembersEmptyState(hasMembers = vm.members.isNotEmpty()) }
-                        else -> {
-                            items(displayed, key = { it.id }) { member ->
-                                LaunchedEffect(member.id, displayed.size) {
-                                    vm.revealMoreIfNeeded(member, displayed, filtered.size)
-                                }
-                                MemberRow(
-                                    member,
-                                    Modifier
-                                        .clip(RoundedCornerShape(NovoDimens.cornerRadius))
-                                        .clickable { vm.openMember(member) },
-                                )
-                            }
-                            if (vm.isLoadingMore && vm.revealedCount >= filtered.size) {
-                                item {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                    ) {
-                                        CircularProgressIndicator(
-                                            color = NovoColors.accent,
-                                            strokeWidth = 2.dp,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Text(
-                                            "Cargando más…",
-                                            style = NovoFonts.body(13).copy(color = NovoColors.textSecondary),
-                                        )
-                                    }
-                                }
-                            }
+                item(key = "header") {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 20.dp, end = 16.dp, top = 8.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Miembros", style = NovoFonts.heading(32))
+                            Text(vm.summaryLabel, style = NovoFonts.medium(14).copy(color = NovoColors.textSecondary))
                         }
+                        headerTrailing()
+                    }
+                }
+                item(key = "search") {
+                    SearchField(
+                        vm.query,
+                        vm::updateQuery,
+                        "Buscar por nombre o cédula",
+                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        showsClear = true,
+                    )
+                }
+                item(key = "chips") { FilterChips(vm, counts) }
+                when {
+                    vm.isLoading && vm.members.isEmpty() -> items(8) { MemberRowSkeleton(Modifier.padding(horizontal = 16.dp)) }
+                    filtered.isEmpty() -> item { MembersEmptyState(hasMembers = vm.members.isNotEmpty()) }
+                    else -> items(filtered, key = { it.id }) { member ->
+                        MemberRow(
+                            member,
+                            Modifier
+                                .padding(horizontal = 16.dp)
+                                .clip(RoundedCornerShape(NovoDimens.cornerRadius))
+                                .clickable { vm.openMember(member) },
+                        )
                     }
                 }
             }
@@ -214,73 +179,27 @@ private fun MembersListScreen(vm: MembersViewModel, headerTrailing: @Composable 
     }
 }
 
+/** Same chips as the coach Evaluaciones / Programas lists. */
 @Composable
-private fun SearchField(query: String, onChange: (String) -> Unit, onSubmit: () -> Unit) {
+private fun FilterChips(vm: MembersViewModel, counts: Map<MembersFilter, Int>) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(NovoColors.card)
-            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        Icon(Icons.Filled.Search, contentDescription = null, tint = NovoColors.textSecondary)
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) {
-                Text("Buscar por nombre o cédula", style = NovoFonts.body(16).copy(color = NovoColors.textSecondary))
-            }
-            BasicTextField(
-                value = query,
-                onValueChange = onChange,
-                singleLine = true,
-                textStyle = NovoFonts.body(16),
-                cursorBrush = SolidColor(NovoColors.accent),
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (query.isNotEmpty()) {
-            Icon(
-                Icons.Filled.Cancel,
-                contentDescription = "Borrar búsqueda",
-                tint = NovoColors.textSecondary,
-                modifier = Modifier.size(20.dp).clip(CircleShape).clickable { onChange("") },
-            )
-        }
-    }
-}
-
-@Composable
-private fun FilterChips(vm: MembersViewModel) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(MembersFilter.entries) { filter ->
-            val active = vm.filter == filter
+        MembersFilter.entries.forEach { filter ->
+            val selected = vm.filter == filter
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
-                    .height(34.dp)
                     .clip(CircleShape)
-                    .background(if (active) NovoColors.accent else NovoColors.card)
-                    .border(1.dp, if (active) NovoColors.accent else NovoColors.separator, CircleShape)
+                    .background(if (selected) NovoColors.accent else NovoColors.card)
                     .clickable { vm.selectFilter(filter) }
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
             ) {
-                Text(
-                    filter.label,
-                    style = NovoFonts.semibold(13).copy(color = if (active) Color.White else Color(0xFFB0B0B0)),
-                )
-                Text(
-                    vm.count(filter).toString(),
-                    style = NovoFonts.semibold(11).copy(color = if (active) Color.White else Color(0xFFB3B3B3)),
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = if (active) 0.25f else 0.08f))
-                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                )
+                val color = if (selected) Color.White else Color(0xFF9A9A9E)
+                Text(filter.label, style = NovoFonts.semibold(14).copy(color = color))
+                Text("${counts[filter] ?: 0}", style = NovoFonts.semibold(12).copy(color = color.copy(alpha = 0.85f)))
             }
         }
     }

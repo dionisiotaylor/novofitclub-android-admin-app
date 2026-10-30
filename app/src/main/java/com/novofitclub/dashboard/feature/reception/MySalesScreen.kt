@@ -1,6 +1,12 @@
 package com.novofitclub.dashboard.feature.reception
 
 import androidx.activity.compose.BackHandler
+import com.novofitclub.dashboard.feature.sales.SearchField
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,7 +75,9 @@ import com.novofitclub.dashboard.feature.sales.SaleTagsView
 import com.novofitclub.dashboard.feature.sales.ScopedViewModels
 import com.novofitclub.dashboard.feature.sales.edit.SaleEditScreen
 import com.novofitclub.dashboard.feature.sales.saleRowBackground
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -102,6 +110,23 @@ class MySalesViewModel(private val api: WPApiClient) : ViewModel() {
     var showingNewSale by mutableStateOf(false)
     private var job: Job? = null
 
+    /** Search over all her sales (any day), from `novo-staff/v1/sales/list`. */
+    var search by mutableStateOf("")
+        private set
+    var results by mutableStateOf<List<ReceptionSale>>(emptyList())
+        private set
+    var isSearchLoading by mutableStateOf(false)
+        private set
+    var searchError by mutableStateOf<String?>(null)
+        private set
+    private var searchPage = 1
+    private var searchHasMore = false
+    private var searchJob: Job? = null
+
+    /** The search sent to the server: 2+ characters, else the day view. */
+    private val activeSearch: String get() = search.trim().takeIf { it.length >= 2 }.orEmpty()
+    val isSearching: Boolean get() = activeSearch.isNotEmpty()
+
     init {
         load()
     }
@@ -111,6 +136,55 @@ class MySalesViewModel(private val api: WPApiClient) : ViewModel() {
     fun select(day: LocalDate) {
         this.day = day
         load()
+    }
+
+    fun updateSearch(text: String) {
+        val before = activeSearch
+        search = text
+        if (activeSearch == before) return
+        searchJob?.cancel()
+        results = emptyList()
+        searchError = null
+        if (activeSearch.isEmpty()) {
+            isSearchLoading = false
+            return
+        }
+        isSearchLoading = true
+        searchJob = viewModelScope.launch {
+            delay(300)
+            searchPage = 1
+            searchHasMore = true
+            fetchResults()
+        }
+    }
+
+    /** The next page of results, once the last one is on screen. */
+    fun loadMoreResults() {
+        if (!isSearching || !searchHasMore || isSearchLoading) return
+        searchJob = viewModelScope.launch { fetchResults() }
+    }
+
+    private suspend fun fetchResults() {
+        val query = activeSearch
+        isSearchLoading = true
+        try {
+            val response = api.getObject(
+                "novo-staff/v1/sales/list",
+                mapOf("search" to query, "page" to searchPage.toString(), "per_page" to "25"),
+            )
+            if (query != activeSearch) return
+            val page = response.arr("items")?.objects().orEmpty().mapNotNull { ReceptionSale.from(it) }
+            results = results + page.filter { sale -> results.none { it.id == sale.id } }
+            searchHasMore = response.bool("has_more") == true && page.isNotEmpty()
+            searchPage += 1
+            searchError = null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            searchError = e.localizedMessage ?: "Error desconocido."
+        } finally {
+            isSearchLoading = false
+        }
     }
 
     fun load() {
@@ -135,6 +209,7 @@ class MySalesViewModel(private val api: WPApiClient) : ViewModel() {
 private val dayTitle = DateTimeFormatter.ofPattern("d 'de' MMMM", Locale.forLanguageTag("es"))
 private val dayChip = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("es"))
 private val clock = DateTimeFormatter.ofPattern("h:mm a", Locale.forLanguageTag("es"))
+private val dayAndClock = DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a", Locale.forLanguageTag("es"))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -144,25 +219,43 @@ fun MySalesScreen(app: NovoFitClubApp) {
 
     Box(Modifier.fillMaxSize()) {
         PullToRefreshBox(isRefreshing = vm.isLoading && vm.sales.isNotEmpty(), onRefresh = { vm.load() }, modifier = Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                SectionHeader("Mis ventas", if (vm.isToday) "Hoy" else vm.day.format(dayTitle))
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 96.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().cardBackground().padding(16.dp)) {
-                        SectionLabel("Día", Modifier.weight(1f))
-                        Text(
-                            vm.day.format(dayChip),
-                            style = NovoFonts.medium(15).copy(color = NovoColors.accent),
-                            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(NovoColors.panel).clickable { pickingDay = true }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                        )
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = 96.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                item(key = "header") { SectionHeader("Mis ventas", if (vm.isToday) "Hoy" else vm.day.format(dayTitle)) }
+                item(key = "search") {
+                    SearchField(vm.search, vm::updateSearch, "Buscar por nombre, cédula o recibo", Modifier.padding(horizontal = 16.dp), showsClear = true)
+                }
+                if (vm.isSearching) {
+                    searchResults(vm)
+                } else {
+                    item(key = "day") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().cardBackground().padding(16.dp),
+                        ) {
+                            SectionLabel("Día", Modifier.weight(1f))
+                            Text(
+                                vm.day.format(dayChip),
+                                style = NovoFonts.medium(15).copy(color = NovoColors.accent),
+                                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(NovoColors.panel).clickable { pickingDay = true }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                            )
+                        }
                     }
-                    TotalsCard(vm)
+                    item(key = "totals") { Box(Modifier.padding(horizontal = 16.dp)) { TotalsCard(vm) } }
                     val error = vm.errorMessage
                     when {
-                        vm.isLoading && vm.sales.isEmpty() -> LoadingState()
-                        error != null -> ErrorState(error, onRetry = { vm.load() })
-                        vm.sales.isEmpty() -> EmptyState(if (vm.isToday) "Todavía no registraste ventas hoy." else "No registraste ventas ese día.")
-                        else -> vm.sales.forEach { sale -> SaleRow(sale) { vm.selected = sale } }
+                        vm.isLoading && vm.sales.isEmpty() -> item(key = "loading") { LoadingState() }
+                        error != null -> item(key = "error") { ErrorState(error, onRetry = { vm.load() }) }
+                        vm.sales.isEmpty() -> item(key = "empty") {
+                            EmptyState(if (vm.isToday) "Todavía no registraste ventas hoy." else "No registraste ventas ese día.")
+                        }
+                        else -> items(vm.sales, key = { it.id }) { sale ->
+                            Box(Modifier.padding(horizontal = 16.dp)) { SaleRow(sale) { vm.selected = sale } }
+                        }
                     }
                 }
             }
@@ -239,12 +332,12 @@ private fun MethodTile(title: String, amount: Double, modifier: Modifier) {
 }
 
 @Composable
-private fun SaleRow(sale: ReceptionSale, onClick: () -> Unit) {
+private fun SaleRow(sale: ReceptionSale, showDate: Boolean = false, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().saleRowBackground(sale.isCanje, sale.hasAjuste).clickable(onClick = onClick).padding(16.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(sale.buyers.ifEmpty { listOf("Sin miembro") }.joinToString(", "), style = NovoFonts.semibold(15), maxLines = 1)
             Text(sale.items.joinToString(" · "), style = NovoFonts.body(13).copy(color = NovoColors.textSecondary), maxLines = 2)
-            val time = sale.date?.toInstant()?.atZone(ZoneId.systemDefault())?.format(clock)
+            val time = sale.date?.toInstant()?.atZone(ZoneId.systemDefault())?.format(if (showDate) dayAndClock else clock)
             Text(
                 listOfNotNull(time, if (sale.isCanje) "Sin pago" else sale.paymentLabel.ifEmpty { null }).joinToString(" · "),
                 style = NovoFonts.body(12).copy(color = NovoColors.textSecondary),
@@ -255,6 +348,23 @@ private fun SaleRow(sale: ReceptionSale, onClick: () -> Unit) {
             SaleTagsView(SaleTag.of(sale.isCanje, sale.hasAjuste))
             Text(Formatters.colones(sale.amounts.total), style = NovoFonts.semibold(15).copy(color = if (sale.isCanje) NovoColors.canje else NovoColors.textPrimary))
             sale.statusLabel?.let { Text(it, style = NovoFonts.semibold(11).copy(color = NovoColors.statusExpiring)) }
+        }
+    }
+}
+
+/** Her sales matching the search, any day, newest first; the next page loads at the end. */
+private fun LazyListScope.searchResults(vm: MySalesViewModel) {
+    val error = vm.searchError
+    when {
+        vm.results.isEmpty() && vm.isSearchLoading -> item(key = "searching") { LoadingState() }
+        error != null && vm.results.isEmpty() -> item(key = "search-error") { ErrorState(error, onRetry = { vm.loadMoreResults() }) }
+        vm.results.isEmpty() -> item(key = "no-results") { EmptyState("No encontramos ventas tuyas con esa búsqueda.") }
+        else -> {
+            items(vm.results, key = { "r-${it.id}" }) { sale ->
+                if (sale.id == vm.results.last().id) LaunchedEffect(sale.id) { vm.loadMoreResults() }
+                Box(Modifier.padding(horizontal = 16.dp)) { SaleRow(sale, showDate = true) { vm.selected = sale } }
+            }
+            if (vm.isSearchLoading) item(key = "more") { LoadingState() }
         }
     }
 }

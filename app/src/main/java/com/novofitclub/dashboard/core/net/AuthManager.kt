@@ -232,6 +232,8 @@ class AuthManager(context: Context) {
             }
         }
         store.delete(_state.value.username)
+        // The cached member list (names, cédulas, phones) goes with the session.
+        com.novofitclub.dashboard.feature.members.MemberIndex.clear()
         prefs.edit().remove(KEY_USERNAME).remove(KEY_ROLE).remove(KEY_NAME).remove(KEY_CAN).apply()
         viewingCoach.value = null
         _state.update { it.copy(isAuthenticated = false, username = "", role = null, displayName = "", can = StaffCan(), profileError = null) }

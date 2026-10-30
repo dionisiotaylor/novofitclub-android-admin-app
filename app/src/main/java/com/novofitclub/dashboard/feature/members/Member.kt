@@ -63,7 +63,24 @@ data class Member(
     val photoUrl: String? = null,
     /** From the birthday, server-side; null without one. A sale's age rule reads it. */
     val age: Int? = null,
+    /** The membership type's label ("Regular", "Estudiante"…). */
+    val plan: String? = null,
+    val expiration: LocalDate? = null,
 ) {
+    /** Search keys, computed once: the name folded (no case or accents), the cédula and phone as digits. */
+    val searchName: String = foldForSearch(name)
+    val cedulaDigits: String = memberId.filter(Char::isLetterOrDigit).uppercase()
+    val phoneDigits: String = phone.orEmpty().filter(Char::isDigit)
+
+    /** The list's short status: "Activo", "Vence hoy", "Vence en 3d", "Vencido". */
+    val chipLabel: String
+        get() = when (status) {
+            MembershipStatus.Active -> "Activo"
+            MembershipStatus.Expired -> "Vencido"
+            MembershipStatus.Expiring -> expiration?.let { ChronoUnit.DAYS.between(LocalDate.now(), it) }
+                ?.let { if (it <= 0L) "Vence hoy" else "Vence en ${it}d" } ?: "Por vencer"
+        }
+
     companion object {
         private const val EXPIRING_WINDOW_DAYS = 7
 
@@ -75,6 +92,7 @@ data class Member(
                 memberId,
             )
             val (status, label) = resolveStatus(fields)
+            val expiration = parseExpiration(fields.firstString("membership_expiration_date"))
             return Member(
                 id = id,
                 memberId = memberId,
@@ -87,6 +105,8 @@ data class Member(
                 avatarColor = NovoColors.avatarPalette[fallbackIndex % NovoColors.avatarPalette.size],
                 photoUrl = fields.firstString("photo_url"),
                 age = fields.num("age")?.toInt(),
+                plan = fields.firstString("membership_type")?.ifBlank { null },
+                expiration = expiration,
             )
         }
 
@@ -110,15 +130,26 @@ data class Member(
             return from(fields, fallbackIndex)
         }
 
+        private val ISO_DAY = Regex("""^\d{4}-\d{2}-\d{2}""")
+
+        /** "2026-11-16" straight (the members index, ~3700 at once); other formats through [Formatters.parseDate]. */
+        private fun parseExpiration(raw: String?): LocalDate? {
+            if (raw.isNullOrEmpty()) return null
+            if (ISO_DAY.containsMatchIn(raw)) runCatching { return LocalDate.parse(raw.take(10)) }
+            return Formatters.parseDate(raw)?.toLocalDate()
+        }
+
         /** Strips the trailing " – <member_id>"; placeholder when no real name is on file. */
         private fun cleanName(raw: String, fallbackId: String): String =
             splitEmbeddedId(raw).first ?: "Miembro #$fallbackId"
 
         private fun resolveStatus(fields: JSONObject): Pair<MembershipStatus, String> {
-            val expiration = fields.firstString(
-                "membership_expiration_date", "expiration_date", "vencimiento", "fecha_vencimiento",
-                "membership_expires", "expires_at", "fecha_fin", "next_due_date",
-            )?.let { Formatters.parseDate(it) }?.toLocalDate()
+            val expiration = parseExpiration(
+                fields.firstString(
+                    "membership_expiration_date", "expiration_date", "vencimiento", "fecha_vencimiento",
+                    "membership_expires", "expires_at", "fecha_fin", "next_due_date",
+                ),
+            )
             val raw = fields.firstString("membership_status", "status", "estado", "membership")
             return status(raw, expiration)
         }
@@ -133,7 +164,13 @@ data class Member(
                     return MembershipStatus.Expiring to explicit
                 }
                 if (normalized.contains("venc") || normalized.contains("expired") || normalized.contains("inactiv")) {
-                    return MembershipStatus.Expired to explicit
+                    // The stored status is the English "expired": say it in Spanish.
+                    val label = if (normalized == "expired") {
+                        expiration?.takeIf { it.isBefore(LocalDate.now()) }?.let { statusFromExpiration(it).second } ?: "Vencido"
+                    } else {
+                        explicit
+                    }
+                    return MembershipStatus.Expired to label
                 }
             }
             if (expiration != null) return statusFromExpiration(expiration)
@@ -154,6 +191,12 @@ data class Member(
         }
     }
 }
+
+/** Lowercase without accents, for matching names as typed ("maria" finds "María"). */
+internal fun foldForSearch(text: String): String =
+    Normalizer.normalize(text, Normalizer.Form.NFD).replace(COMBINING_MARKS, "").lowercase()
+
+private val COMBINING_MARKS = Regex("\\p{Mn}+")
 
 internal fun Date.toLocalDate(): LocalDate = toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
 

@@ -5,6 +5,7 @@ import com.novofitclub.dashboard.core.lock.AppLockManager
 import com.novofitclub.dashboard.core.net.AuthManager
 import com.novofitclub.dashboard.core.net.WPApiClient
 import com.novofitclub.dashboard.core.push.PushManager
+import com.novofitclub.dashboard.feature.members.MemberIndex
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Holds the app-wide singletons (the Android equivalent of the iOS app's environment objects). */
@@ -30,5 +31,6 @@ class NovoFitClubApp : Application() {
         api = WPApiClient(auth)
         appLock = AppLockManager(this)
         push = PushManager(this).also { it.createChannels() }
+        MemberIndex.init(this)
     }
 }

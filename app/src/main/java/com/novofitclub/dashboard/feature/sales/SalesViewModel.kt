@@ -21,20 +21,16 @@ import com.novofitclub.dashboard.feature.members.MemberDetailState
 import com.novofitclub.dashboard.feature.members.MemberEditState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
-import java.util.Locale
-import java.util.UUID
 
 /**
- * One row's worth of display data. The cheap `wp/v2/sale` list only gives
- * us the receipt title/date; buyer name, product and total come from a
- * second, per-sale call to `sale-creator/v1/sales/{id}` — see [fetchSummary].
+ * One row's worth of display data, built from a sale's data
+ * (`novo-staff/v1/sales/list` sends it with each sale) — see [summaryFrom].
  */
 data class SaleSummaryRow(
     val id: String,
@@ -76,6 +72,7 @@ class SalesViewModel(
     var rows by mutableStateOf<List<SaleSummaryRow>>(emptyList())
         private set
     var searchText by mutableStateOf("")
+        private set
     var isLoadingFirstPage by mutableStateOf(false)
         private set
     var isLoadingMore by mutableStateOf(false)
@@ -108,20 +105,29 @@ class SalesViewModel(
         private set
 
     private var page = 1
-    private val pageSize = 20
+    private val pageSize = 25
     private var pageJob: Job? = null
+    private var searchJob: Job? = null
     private var didInitialLoad = false
 
-    val filteredRows: List<SaleSummaryRow>
-        get() {
-            if (searchText.isEmpty()) return rows
-            val needle = searchText.lowercase()
-            return rows.filter {
-                (it.buyer?.lowercase()?.contains(needle) ?: false) ||
-                    (it.product?.lowercase()?.contains(needle) ?: false) ||
-                    (it.receipt?.lowercase()?.contains(needle) ?: false)
-            }
+    /** The search the server is asked for: 2+ characters, else none. */
+    private val activeSearch: String get() = searchText.trim().takeIf { it.length >= 2 }.orEmpty()
+    val isSearching: Boolean get() = activeSearch.isNotEmpty()
+
+    /** The server already filtered them (search, day, receptionist). */
+    val filteredRows: List<SaleSummaryRow> get() = rows
+
+    /** Searches name, cédula or receipt on the server, 300 ms after the last keystroke. */
+    fun updateSearch(text: String) {
+        val before = activeSearch
+        searchText = text
+        if (activeSearch == before) return
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(300)
+            resetAndReload()
         }
+    }
 
     // region Navigation
 
@@ -276,8 +282,14 @@ class SalesViewModel(
     fun refreshRow(saleId: String) {
         val existing = rows.firstOrNull { it.id == saleId } ?: return
         viewModelScope.launch {
-            val fields = JSONObject().put("id", saleId)
-            val updated = fetchSummary(fields, api).copy(receipt = existing.receipt, date = existing.date)
+            val details = try {
+                api.getObject("sale-creator/v1/sales/$saleId")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            val updated = summaryFrom(details, saleId, existing.receipt, existing.date)
             rows = rows.map { if (it.id == saleId) updated else it }
         }
     }
@@ -306,24 +318,17 @@ class SalesViewModel(
         val job = viewModelScope.launch {
             isFetchingPage = true
             try {
-                val raw = api.getArray("wp/v2/sale", currentQuery())
-                hasMore = raw.size == pageSize
-
+                // One call per page: each sale comes with its data, so the
+                // rows don't need a second request each.
+                val response = api.getObject("novo-staff/v1/sales/list", currentQuery())
                 val seenIds = rows.map { it.id }.toMutableSet()
-                val fresh = raw.filter { fields ->
-                    val id = fields.firstString("id") ?: UUID.randomUUID().toString()
-                    seenIds.add(id)
+                val fresh = response.arr("items")?.objects().orEmpty().mapNotNull { sale ->
+                    val id = sale.firstString("id") ?: return@mapNotNull null
+                    if (!seenIds.add(id)) return@mapNotNull null
+                    summaryFrom(sale, id, sale.str("receipt"), Formatters.friendlyDate(sale.str("date")))
                 }
-                // Detail calls run concurrently but rows are appended in
-                // order as each arrives, so the list fills top-down.
-                coroutineScope {
-                    val pending = fresh.map { fields -> async { fetchSummary(fields, api) } }
-                    for (deferred in pending) {
-                        val row = deferred.await()
-                        if (rows.none { it.id == row.id }) rows = rows + row
-                    }
-                }
-                if (fresh.isEmpty()) hasMore = false
+                rows = rows + fresh
+                hasMore = response.optBoolean("has_more") && fresh.isNotEmpty()
                 page += 1
             } catch (e: CancellationException) {
                 throw e
@@ -337,19 +342,15 @@ class SalesViewModel(
         job.join()
     }
 
+    /** author=0 is everyone's sales (the server keeps reception to her own regardless). */
     private fun currentQuery(): Map<String, String> {
         val query = mutableMapOf(
             "per_page" to pageSize.toString(),
             "page" to page.toString(),
-            "orderby" to "date",
-            "order" to "desc",
+            "author" to (selectedReceptionist?.id ?: "0"),
         )
-        selectedDate?.let {
-            val (after, before) = dayRange(it)
-            query["after"] = after
-            query["before"] = before
-        }
-        selectedReceptionist?.let { query["author"] = it.id }
+        selectedDate?.let { query["date"] = Formatters.apiDate(it) }
+        activeSearch.takeIf { it.isNotEmpty() }?.let { query["search"] = it }
         return query
     }
 
@@ -369,63 +370,41 @@ class SalesViewModel(
             set(Calendar.MILLISECOND, 0)
         }.time
 
-        private fun dayRange(day: Date): Pair<String, String> {
-            val start = startOfDay(day)
-            val next = Calendar.getInstance().apply {
-                time = start
-                add(Calendar.DAY_OF_MONTH, 1)
-            }.time
-            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-            return format.format(start) to format.format(next)
-        }
-
-        suspend fun fetchSummary(fields: JSONObject, api: WPApiClient): SaleSummaryRow {
-            val id = fields.firstString("id") ?: UUID.randomUUID().toString()
-            val receipt = fields.obj("title")?.str("rendered")
-            val date = Formatters.friendlyDate(fields.firstString("date"))
-
-            var buyer: String? = null
-            var product: String? = null
-            var amount: Double? = null
-            var imageUrl: String? = null
-            var ajustes: List<SaleAjuste> = emptyList()
-            var isCanje = false
-            val details = try {
-                api.getObject("sale-creator/v1/sales/$id")
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
+        /** A list row from a sale's data (`novo-staff/v1/sales/list` item or `sale-creator/v1/sales/{id}`). */
+        fun summaryFrom(details: JSONObject, id: String, receipt: String?, date: String?): SaleSummaryRow {
+            val names = (details.arr("members")?.objects() ?: emptyList()).mapNotNull { member ->
+                member.str("name")?.let { splitEmbeddedId(it).first }
             }
-            if (details != null) {
-                val names = (details.arr("members")?.objects() ?: emptyList()).mapNotNull { member ->
-                    member.str("name")?.let { splitEmbeddedId(it).first }
-                }
-                buyer = if (names.isEmpty()) null else names.joinToString(", ")
+            // A sale doesn't always have a membership — a pure
+            // physical-product sale has `membership: null`.
+            val membership = details.obj("membership")
+            val physicalProducts = details.arr("physical_products")?.objects() ?: emptyList()
+            val services = details.arr("services")?.objects() ?: emptyList()
+            val ajustes = details.arr("ajustes")?.objects().orEmpty().map { SaleAjuste.from(it) }
+            val isCanje = details.firstString("status") == "trade"
 
-                // A sale doesn't always have a membership — a pure
-                // physical-product sale has `membership: null`.
-                val membership = details.obj("membership")
-                val physicalProducts = details.arr("physical_products")?.objects() ?: emptyList()
-                val services = details.arr("services")?.objects() ?: emptyList()
+            val product = membership?.firstString("title", "name")
+                ?: physicalProducts.firstOrNull()?.firstString("title", "name")
+                ?: services.firstOrNull()?.firstString("title", "name")
+                ?: ajustes.firstOrNull()?.let { "Diferencia: ${it.concept}" }
 
-                ajustes = details.arr("ajustes")?.objects().orEmpty().map { SaleAjuste.from(it) }
-                isCanje = details.firstString("status") == "trade"
+            val membershipPrice = membership?.firstNumber("price") ?: 0.0
+            val productsTotal = physicalProducts.sumOf { (it.firstNumber("price") ?: 0.0) * (it.firstNumber("quantity") ?: 1.0) }
+            val servicesTotal = services.sumOf { it.firstNumber("price") ?: 0.0 }
+            // Nothing is charged for a canje — ₡0, as in the wp-admin Sales list.
+            val amount = if (isCanje) 0.0 else membershipPrice + productsTotal + servicesTotal + ajustes.sumOf { it.amount }
 
-                product = membership?.firstString("title", "name")
-                    ?: physicalProducts.firstOrNull()?.firstString("title", "name")
-                    ?: services.firstOrNull()?.firstString("title", "name")
-                    ?: ajustes.firstOrNull()?.let { "Diferencia: ${it.concept}" }
-
-                val membershipPrice = membership?.firstNumber("price") ?: 0.0
-                val productsTotal = physicalProducts.sumOf { (it.firstNumber("price") ?: 0.0) * (it.firstNumber("quantity") ?: 1.0) }
-                val servicesTotal = services.sumOf { it.firstNumber("price") ?: 0.0 }
-                // Nothing is charged for a canje — ₡0, as in the wp-admin Sales list.
-                amount = if (isCanje) 0.0 else membershipPrice + productsTotal + servicesTotal + ajustes.sumOf { it.amount }
-
-                imageUrl = physicalProducts.firstOrNull()?.imageUrl() ?: membership?.imageUrl()
-            }
-            return SaleSummaryRow(id, receipt, date, buyer, product, amount, imageUrl, hasAjuste = ajustes.isNotEmpty(), isCanje = isCanje)
+            return SaleSummaryRow(
+                id = id,
+                receipt = receipt,
+                date = date,
+                buyer = names.takeIf { it.isNotEmpty() }?.joinToString(", "),
+                product = product,
+                amount = amount,
+                imageUrl = physicalProducts.firstOrNull()?.imageUrl() ?: membership?.imageUrl(),
+                hasAjuste = ajustes.isNotEmpty(),
+                isCanje = isCanje,
+            )
         }
     }
 }

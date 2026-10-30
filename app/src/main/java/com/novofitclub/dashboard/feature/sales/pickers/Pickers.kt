@@ -168,8 +168,7 @@ internal fun MemberPickerScreen(
             ) { CircularProgressIndicator(color = NovoColors.accent) }
             error != null && source.members.isEmpty() -> UnavailableState(error)
             else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(source.displayedMembers, key = { it.id }) { member ->
-                    LaunchedEffect(member.id) { source.revealMoreIfNeeded(member) }
+                items(source.filteredMembers, key = { it.id }) { member ->
                     val postId = member.id.toIntOrNull()
                     PickerRow(onClick = {
                         if (postId == null) return@PickerRow
@@ -193,13 +192,6 @@ internal fun MemberPickerScreen(
                             )
                         }
                         if (postId != null && selected.containsKey(postId)) SelectedCheck()
-                    }
-                }
-                if (source.isLoadingMore) {
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = NovoColors.accent, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
-                        }
                     }
                 }
             }
